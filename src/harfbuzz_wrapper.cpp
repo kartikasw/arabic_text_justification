@@ -8,6 +8,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include FT_OUTLINE_H
 
 LineResult* shape_line(
         const char* font_path,
@@ -85,7 +86,8 @@ RenderResult* render_line(
         const char* font_path,
         const char* text,
         float       font_size,
-        float       available_width
+        float       available_width,
+        int         justify
 ) {
     // Initialize FreeType
     FT_Library ft_lib;
@@ -108,6 +110,11 @@ RenderResult* render_line(
     hb_buffer_set_direction(buf, HB_DIRECTION_RTL);
     hb_buffer_set_script(buf, HB_SCRIPT_ARABIC);
     hb_buffer_set_language(buf, hb_language_from_string("ar", -1));
+
+    if (justify) {
+        int lineWidth = (int)(available_width * 64);
+        hb_buffer_set_justify(buf, lineWidth);
+    }
 
     hb_shape(hb_font, buf, NULL, 0);
 
@@ -235,6 +242,205 @@ RenderResult* render_line(
 void free_render_result(RenderResult* result) {
     if (result) {
         free(result->pixels);
+        free(result->word_rects);
+        free(result);
+    }
+}
+
+// --- Vector outline extraction ---
+
+struct OutlineUserData {
+    std::vector<PathCommand> commands;
+};
+
+static int outline_move_to(const FT_Vector* to, void* user) {
+    auto* data = (OutlineUserData*)user;
+    PathCommand cmd = {};
+    cmd.type = PATH_MOVE_TO;
+    cmd.x = to->x / 64.0f;
+    cmd.y = to->y / 64.0f;
+    data->commands.push_back(cmd);
+    return 0;
+}
+
+static int outline_line_to(const FT_Vector* to, void* user) {
+    auto* data = (OutlineUserData*)user;
+    PathCommand cmd = {};
+    cmd.type = PATH_LINE_TO;
+    cmd.x = to->x / 64.0f;
+    cmd.y = to->y / 64.0f;
+    data->commands.push_back(cmd);
+    return 0;
+}
+
+static int outline_conic_to(const FT_Vector* control, const FT_Vector* to, void* user) {
+    auto* data = (OutlineUserData*)user;
+    PathCommand cmd = {};
+    cmd.type = PATH_QUAD_TO;
+    cmd.x1 = control->x / 64.0f;
+    cmd.y1 = control->y / 64.0f;
+    cmd.x  = to->x / 64.0f;
+    cmd.y  = to->y / 64.0f;
+    data->commands.push_back(cmd);
+    return 0;
+}
+
+static int outline_cubic_to(const FT_Vector* ctrl1, const FT_Vector* ctrl2, const FT_Vector* to, void* user) {
+    auto* data = (OutlineUserData*)user;
+    PathCommand cmd = {};
+    cmd.type = PATH_CUBIC_TO;
+    cmd.x1 = ctrl1->x / 64.0f;
+    cmd.y1 = ctrl1->y / 64.0f;
+    cmd.x2 = ctrl2->x / 64.0f;
+    cmd.y2 = ctrl2->y / 64.0f;
+    cmd.x  = to->x / 64.0f;
+    cmd.y  = to->y / 64.0f;
+    data->commands.push_back(cmd);
+    return 0;
+}
+
+OutlineResult* get_outline(
+        const char* font_path,
+        const char* text,
+        float       font_size,
+        float       available_width,
+        int         justify
+) {
+    FT_Library ft_lib;
+    if (FT_Init_FreeType(&ft_lib)) return NULL;
+
+    FT_Face ft_face;
+    if (FT_New_Face(ft_lib, font_path, 0, &ft_face)) {
+        FT_Done_FreeType(ft_lib);
+        return NULL;
+    }
+
+    FT_Set_Char_Size(ft_face, 0, (FT_F26Dot6)(font_size * 64), 72, 72);
+
+    hb_font_t* hb_font = hb_ft_font_create(ft_face, NULL);
+
+    hb_buffer_t* buf = hb_buffer_create();
+    hb_buffer_add_utf8(buf, text, -1, 0, -1);
+    hb_buffer_set_direction(buf, HB_DIRECTION_RTL);
+    hb_buffer_set_script(buf, HB_SCRIPT_ARABIC);
+    hb_buffer_set_language(buf, hb_language_from_string("ar", -1));
+
+    if (justify) {
+        int lineWidth = (int)(available_width * 64);
+        hb_buffer_set_justify(buf, lineWidth);
+    }
+
+    hb_shape(hb_font, buf, NULL, 0);
+
+    unsigned int glyph_count;
+    hb_glyph_info_t*     infos = hb_buffer_get_glyph_infos(buf, &glyph_count);
+    hb_glyph_position_t* poses = hb_buffer_get_glyph_positions(buf, &glyph_count);
+
+    // Word boundaries
+    std::vector<int> boundaries = find_word_boundaries(text);
+    int word_count = (int)boundaries.size();
+
+    struct WordBounds {
+        float x_min = 1e9f;
+        float x_max = -1e9f;
+    };
+    std::vector<WordBounds> word_bounds(word_count);
+
+    float ascender  = ft_face->size->metrics.ascender / 64.0f;
+    float descender = ft_face->size->metrics.descender / 64.0f;
+    float metric_height = ascender - descender;
+
+    // Decompose outlines
+    FT_Outline_Funcs funcs = {};
+    funcs.move_to  = outline_move_to;
+    funcs.line_to  = outline_line_to;
+    funcs.conic_to = outline_conic_to;
+    funcs.cubic_to = outline_cubic_to;
+
+    GlyphOutline* glyph_outlines = (GlyphOutline*)malloc(sizeof(GlyphOutline) * glyph_count);
+    float padding = font_size * 0.5f;
+    float cursor_x = padding * 0.5f;
+
+    for (unsigned int i = 0; i < glyph_count; i++) {
+        FT_UInt glyph_index = infos[i].codepoint;
+        int word_idx = cluster_to_word(boundaries, infos[i].cluster);
+
+        float glyph_x = cursor_x + poses[i].x_offset / 64.0f;
+        float glyph_y = poses[i].y_offset / 64.0f;
+        float advance  = poses[i].x_advance / 64.0f;
+
+        // Update word bounds
+        if (word_idx >= 0 && word_idx < word_count) {
+            float left = glyph_x;
+            float right = glyph_x + advance;
+            if (left > right) std::swap(left, right);
+            word_bounds[word_idx].x_min = std::min(word_bounds[word_idx].x_min, left);
+            word_bounds[word_idx].x_max = std::max(word_bounds[word_idx].x_max, right);
+        }
+
+        glyph_outlines[i].offset_x = glyph_x;
+        glyph_outlines[i].offset_y = glyph_y;
+        glyph_outlines[i].word_index = word_idx;
+
+        if (FT_Load_Glyph(ft_face, glyph_index, FT_LOAD_NO_BITMAP) == 0 &&
+            ft_face->glyph->format == FT_GLYPH_FORMAT_OUTLINE) {
+
+            OutlineUserData user_data;
+            FT_Outline_Decompose(&ft_face->glyph->outline, &funcs, &user_data);
+
+            int cmd_count = (int)user_data.commands.size();
+            glyph_outlines[i].command_count = cmd_count;
+            if (cmd_count > 0) {
+                glyph_outlines[i].commands = (PathCommand*)malloc(sizeof(PathCommand) * cmd_count);
+                memcpy(glyph_outlines[i].commands, user_data.commands.data(), sizeof(PathCommand) * cmd_count);
+            } else {
+                glyph_outlines[i].commands = NULL;
+            }
+        } else {
+            glyph_outlines[i].commands = NULL;
+            glyph_outlines[i].command_count = 0;
+        }
+
+        cursor_x += advance;
+    }
+
+    hb_buffer_destroy(buf);
+    hb_font_destroy(hb_font);
+    FT_Done_Face(ft_face);
+    FT_Done_FreeType(ft_lib);
+
+    // Build word rects
+    WordRect* rects = (WordRect*)malloc(sizeof(WordRect) * word_count);
+    for (int w = 0; w < word_count; w++) {
+        if (word_bounds[w].x_min > word_bounds[w].x_max) {
+            rects[w].x = 0; rects[w].y = 0;
+            rects[w].width = 0; rects[w].height = 0;
+        } else {
+            rects[w].x = word_bounds[w].x_min;
+            rects[w].y = 0;
+            rects[w].width = word_bounds[w].x_max - word_bounds[w].x_min;
+            rects[w].height = metric_height;
+        }
+    }
+
+    OutlineResult* result = (OutlineResult*)malloc(sizeof(OutlineResult));
+    result->glyphs      = glyph_outlines;
+    result->glyph_count = (int)glyph_count;
+    result->word_rects  = rects;
+    result->word_count  = word_count;
+    result->ascender    = ascender;
+    result->descender   = descender;
+    result->total_width = cursor_x + padding * 0.5f;
+
+    return result;
+}
+
+void free_outline_result(OutlineResult* result) {
+    if (result) {
+        for (int i = 0; i < result->glyph_count; i++) {
+            free(result->glyphs[i].commands);
+        }
+        free(result->glyphs);
         free(result->word_rects);
         free(result);
     }
