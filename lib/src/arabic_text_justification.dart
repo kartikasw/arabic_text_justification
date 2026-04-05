@@ -162,6 +162,7 @@ class ArabicTextJustification {
         commands: commands,
         offsetX: g.offsetX,
         offsetY: g.offsetY,
+        wordIndex: g.wordIndex,
       ));
     }
 

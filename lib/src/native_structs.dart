@@ -66,6 +66,8 @@ final class NativeGlyphOutline extends Struct {
   external double offsetX;
   @Float()
   external double offsetY;
+  @Int32()
+  external int wordIndex;
 }
 
 final class NativeOutlineResult extends Struct {

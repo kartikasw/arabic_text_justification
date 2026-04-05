@@ -380,6 +380,7 @@ OutlineResult* get_outline(
 
         glyph_outlines[i].offset_x = glyph_x;
         glyph_outlines[i].offset_y = glyph_y;
+        glyph_outlines[i].word_index = word_idx;
 
         if (FT_Load_Glyph(ft_face, glyph_index, FT_LOAD_NO_BITMAP) == 0 &&
             ft_face->glyph->format == FT_GLYPH_FORMAT_OUTLINE) {

@@ -74,11 +74,13 @@ class GlyphOutline {
   final List<PathCommand> commands;
   final double offsetX;
   final double offsetY;
+  final int wordIndex;
 
   GlyphOutline({
     required this.commands,
     required this.offsetX,
     required this.offsetY,
+    required this.wordIndex,
   });
 }
 

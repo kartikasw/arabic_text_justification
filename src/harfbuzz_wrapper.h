@@ -57,6 +57,7 @@ typedef struct {
     int          command_count;
     float        offset_x;  // glyph position from shaping
     float        offset_y;
+    int          word_index;
 } GlyphOutline;
 
 typedef struct {
