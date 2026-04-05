@@ -1,4 +1,4 @@
-# flutter_arabic_justification
+# arabic_text_justification
 
 A Flutter FFI plugin for Arabic text justification using [HarfBuzz](https://harfbuzz.github.io/) for text shaping and [FreeType](https://freetype.org/) for glyph rasterization.
 
@@ -18,10 +18,10 @@ A Flutter FFI plugin for Arabic text justification using [HarfBuzz](https://harf
 ## Usage
 
 ```dart
-import 'package:flutter_arabic_justification/flutter_arabic_justification.dart';
+import 'package:arabic_text_justification/arabic_text_justification.dart';
 
 // Render a line of Arabic text
-final result = await FlutterArabicJustification.renderLine(
+final result = await ArabicTextJustification.renderLine(
   fontPath,       // path to .otf font file
   'بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ',
   fontSize,       // font size in pixels
@@ -42,14 +42,14 @@ for (final rect in result.wordRects) {
 
 ## API
 
-### `FlutterArabicJustification.renderLine(fontPath, text, fontSize, availableWidth)`
+### `ArabicTextJustification.renderLine(fontPath, text, fontSize, availableWidth)`
 
 Shapes and rasterizes text into an RGBA bitmap. Returns a `RenderResult` containing:
 - `image` -- Flutter `ui.Image` ready for display
 - `bmpWidth`, `bmpHeight` -- bitmap dimensions
 - `wordRects` -- list of `WordRect` bounding boxes per word
 
-### `FlutterArabicJustification.shapeLine(fontPath, text, fontSize, availableWidth)`
+### `ArabicTextJustification.shapeLine(fontPath, text, fontSize, availableWidth)`
 
 Shapes text without rasterizing. Returns a `ShapeResult` containing:
 - `glyphs` -- list of `GlyphInfo` with glyph IDs, offsets, and advances

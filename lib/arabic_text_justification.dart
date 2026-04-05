@@ -100,9 +100,9 @@ class RenderResult {
   });
 }
 
-class FlutterArabicJustification {
+class ArabicTextJustification {
   static final DynamicLibrary _lib = Platform.isAndroid
-      ? DynamicLibrary.open('libflutter_arabic_justification.so')
+      ? DynamicLibrary.open('libarabic_text_justification.so')
       : DynamicLibrary.process();
 
   static final _shapeLine = _lib.lookupFunction<

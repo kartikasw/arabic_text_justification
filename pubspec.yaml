@@ -1,9 +1,9 @@
-name: flutter_arabic_justification
+name: arabic_text_justification
 description: "Flutter FFI plugin for Arabic text justification using HarfBuzz shaping and FreeType rasterization."
 version: 0.0.1
-homepage: https://github.com/kartikasw/flutter_arabic_justification
-repository: https://github.com/kartikasw/flutter_arabic_justification
-issue_tracker: https://github.com/kartikasw/flutter_arabic_justification/issues
+homepage: https://github.com/kartikasw/arabic_text_justification
+repository: https://github.com/kartikasw/arabic_text_justification
+issue_tracker: https://github.com/kartikasw/arabic_text_justification/issues
 
 environment:
   sdk: ^3.6.2

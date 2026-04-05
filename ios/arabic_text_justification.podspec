@@ -1,9 +1,9 @@
 #
 # To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html.
-# Run `pod lib lint flutter_arabic_justification.podspec` to validate before publishing.
+# Run `pod lib lint arabic_text_justification.podspec` to validate before publishing.
 #
 Pod::Spec.new do |s|
-  s.name             = 'flutter_arabic_justification'
+  s.name             = 'arabic_text_justification'
   s.version          = '0.0.1'
   s.summary          = 'A new Flutter FFI plugin project.'
   s.description      = <<-DESC

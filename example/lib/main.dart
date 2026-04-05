@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_arabic_justification/flutter_arabic_justification.dart';
+import 'package:arabic_text_justification/arabic_text_justification.dart';
 import 'package:path_provider/path_provider.dart';
 
 void main() {
@@ -79,7 +79,7 @@ class _MyAppState extends State<MyApp> {
     final fontFile = File('${dir.path}/digitalkhatt.otf');
     if (!await fontFile.exists()) {
       final data = await rootBundle
-          .load('packages/flutter_arabic_justification/assets/digitalkhatt.otf');
+          .load('packages/arabic_text_justification/assets/digitalkhatt.otf');
       await fontFile.writeAsBytes(data.buffer.asUint8List());
     }
     return fontFile.path;
@@ -106,7 +106,7 @@ class _MyAppState extends State<MyApp> {
 
       final lines = <RenderResult?>[];
       for (final line in page3Lines) {
-        final result = await FlutterArabicJustification.renderLine(
+        final result = await ArabicTextJustification.renderLine(
           _fontPath!,
           line.text,
           fontSize,

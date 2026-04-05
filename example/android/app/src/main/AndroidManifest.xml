@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="flutter_arabic_justification_example"
+        android:label="arabic_text_justification_example"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

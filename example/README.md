@@ -1,6 +1,6 @@
-# flutter_arabic_justification_example
+# arabic_text_justification_example
 
-Demonstrates how to use the flutter_arabic_justification plugin.
+Demonstrates how to use the arabic_text_justification plugin.
 
 ## Getting Started
 
