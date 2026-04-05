@@ -6,7 +6,9 @@ Supports two rendering modes: **bitmap** and **vector outline**.
 
 ## Demo
 
-<img src="assets/screenshot.png" width="300" alt="Arabic text justification example" />
+<img width="200" height="445" alt="screenshot" src="https://github.com/user-attachments/assets/22aee348-7d6f-431e-9218-f6a4fdce5423" />
+&nbsp;&nbsp;&nbsp;&nbsp;
+<img width="200" height="445" alt="demo" src="https://github.com/user-attachments/assets/c7c25982-927a-4f87-b6f6-7a5263752579" />
 
 ## How It Works
 
