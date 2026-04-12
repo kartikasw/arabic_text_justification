@@ -31,6 +31,10 @@ class _BitmapPageState extends State<BitmapPage> {
     try {
       final dpr = MediaQuery.of(context).devicePixelRatio;
       final nativeWidth = width * dpr;
+      // Size from vertical space only. Wide lines are compressed
+      // horizontally at draw time (scaleX = displayWidth / totalWidth);
+      // narrow lines get stretched via jalt/tug1/sch1 kashida features
+      // during shaping. This mirrors Tarteel's published approach.
       final lineHeight = height / page3Lines.length;
       final fontSize = lineHeight * dpr / 1.3;
 

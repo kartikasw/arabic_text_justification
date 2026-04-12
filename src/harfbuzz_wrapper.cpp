@@ -5,10 +5,19 @@
 #include FT_FREETYPE_H
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
+#include <climits>
 #include <vector>
 #include <algorithm>
 #include <cmath>
 #include FT_OUTLINE_H
+
+#if defined(__ANDROID__)
+  #include <android/log.h>
+  #define ATJ_LOG(...) __android_log_print(ANDROID_LOG_INFO, "atj", __VA_ARGS__)
+#else
+  #define ATJ_LOG(...) fprintf(stderr, "[atj] " __VA_ARGS__), fprintf(stderr, "\n")
+#endif
 
 LineResult* shape_line(
         const char* font_path,
@@ -61,6 +70,155 @@ void free_line_result(LineResult* result) {
     }
 }
 
+// Shape `text` once with the given feature array and return total advance
+// width in 26.6 fixed-point.
+static int measure_with_features(
+        hb_font_t*          hb_font,
+        const char*         text,
+        const hb_feature_t* features,
+        unsigned int        feature_count)
+{
+    hb_buffer_t* buf = hb_buffer_create();
+    hb_buffer_add_utf8(buf, text, -1, 0, -1);
+    hb_buffer_set_direction(buf, HB_DIRECTION_RTL);
+    hb_buffer_set_script(buf, HB_SCRIPT_ARABIC);
+    hb_buffer_set_language(buf, hb_language_from_string("ar", -1));
+    hb_shape(hb_font, buf, features, feature_count);
+
+    unsigned int count;
+    hb_glyph_position_t* poses = hb_buffer_get_glyph_positions(buf, &count);
+    int total = 0;
+    for (unsigned int i = 0; i < count; i++) total += poses[i].x_advance;
+    hb_buffer_destroy(buf);
+    return total;
+}
+
+// Pick the OpenType feature combination that produces the largest line
+// width still <= target_px. The residual gap (target - chosen_width) is
+// closed afterwards by widening inter-word space advances in the caller.
+//
+// The font exposes these justification features:
+//   stretch (priority order): jalt, tug1, sch1
+//   shrink  (priority order): shr1, shr2
+//
+// For stretching, we walk combinations cumulatively — first {}, then {jalt},
+// then {jalt,tug1}, then {jalt,tug1,sch1} — and keep the one whose width is
+// the largest value still <= target. This avoids massive overshoots (we
+// saw a line jump from ~900 px to 1190 px with jalt alone, target 1038).
+//
+// For shrinking, we turn on features until width <= target (overshoot is
+// fine when shrinking — we can't negatively-space letters).
+//
+// Writes the chosen feature list into `out_features` and returns count.
+static unsigned int build_justify_features(
+        hb_font_t*    hb_font,
+        const char*   text,
+        float         target_px,
+        hb_feature_t* out_features,
+        unsigned int  out_capacity)
+{
+    static const hb_tag_t kStretchTags[] = {
+        HB_TAG('j','a','l','t'),
+        HB_TAG('t','u','g','1'),
+        HB_TAG('s','c','h','1'),
+    };
+    static const hb_tag_t kShrinkTags[] = {
+        HB_TAG('s','h','r','1'),
+        HB_TAG('s','h','r','2'),
+    };
+
+    int natural = measure_with_features(hb_font, text, NULL, 0);
+    int target_fixed = (int)(target_px * 64.0f);
+
+    if (natural == target_fixed) {
+        ATJ_LOG("features: natural %.1f == target, none needed", natural / 64.0f);
+        return 0;
+    }
+
+    if (natural < target_fixed) {
+        // STRETCH: pick the combo with the largest width still <= target.
+        const unsigned int stretch_count =
+            sizeof(kStretchTags) / sizeof(kStretchTags[0]);
+        int best_w = natural;
+        unsigned int best_count = 0;
+
+        hb_feature_t trial[8];
+        for (unsigned int k = 1; k <= stretch_count && k <= out_capacity; k++) {
+            trial[k - 1] = hb_feature_t{ kStretchTags[k - 1], 1, 0, (unsigned)-1 };
+            int w = measure_with_features(hb_font, text, trial, k);
+            if (w <= target_fixed && w > best_w) {
+                best_w = w;
+                best_count = k;
+                memcpy(out_features, trial, k * sizeof(hb_feature_t));
+            }
+        }
+        ATJ_LOG("features: stretch picked %u feature(s), width %.1f (target %.1f, gap %.1f)",
+                best_count, best_w / 64.0f, target_px,
+                target_px - best_w / 64.0f);
+        return best_count;
+    }
+
+    // SHRINK: apply shrink features until width <= target (or exhausted).
+    const unsigned int shrink_count =
+        sizeof(kShrinkTags) / sizeof(kShrinkTags[0]);
+    unsigned int enabled = 0;
+    for (unsigned int i = 0; i < shrink_count && enabled < out_capacity; i++) {
+        out_features[enabled] = hb_feature_t{ kShrinkTags[i], 1, 0, (unsigned)-1 };
+        enabled++;
+        int w = measure_with_features(hb_font, text, out_features, enabled);
+        if (w <= target_fixed) {
+            ATJ_LOG("features: shrink reached target with %u feature(s), width %.1f",
+                    enabled, w / 64.0f);
+            return enabled;
+        }
+    }
+    int w = measure_with_features(hb_font, text, out_features, enabled);
+    ATJ_LOG("features: shrink exhausted, width %.1f (target %.1f)",
+            w / 64.0f, target_px);
+    return enabled;
+}
+
+// After shaping, widen inter-word space advances so the line total matches
+// the target width. Letter advances are untouched, so joining stays intact.
+// Called only if the feature-pick left a residual gap.
+static void fill_residual_with_spaces(
+        hb_buffer_t* buf,
+        const char*  text,
+        float        target_px)
+{
+    unsigned int count;
+    hb_glyph_info_t*     infos = hb_buffer_get_glyph_infos(buf, &count);
+    hb_glyph_position_t* poses = hb_buffer_get_glyph_positions(buf, &count);
+
+    int natural = 0;
+    for (unsigned int i = 0; i < count; i++) natural += poses[i].x_advance;
+
+    int target_fixed = (int)(target_px * 64.0f);
+    int delta = target_fixed - natural;
+    if (delta <= 0) return;
+
+    std::vector<int> space_indices;
+    int text_len = (int)strlen(text);
+    unsigned int last_cluster = UINT_MAX;
+    for (unsigned int i = 0; i < count; i++) {
+        unsigned int cluster = infos[i].cluster;
+        if (cluster == last_cluster) continue;
+        if ((int)cluster < text_len && text[cluster] == ' ') {
+            space_indices.push_back((int)i);
+        }
+        last_cluster = cluster;
+    }
+    if (space_indices.empty()) return;
+
+    int per_space = delta / (int)space_indices.size();
+    int remainder = delta - per_space * (int)space_indices.size();
+    for (size_t k = 0; k < space_indices.size(); k++) {
+        int extra = per_space + (k < (size_t)remainder ? 1 : 0);
+        poses[space_indices[k]].x_advance += extra;
+    }
+    ATJ_LOG("residual: +%.1f px across %zu spaces", delta / 64.0f, space_indices.size());
+}
+
 // Find word indices (byte offsets of space characters in UTF-8 text)
 static std::vector<int> find_word_boundaries(const char* text) {
     std::vector<int> boundaries;
@@ -104,19 +262,22 @@ RenderResult* render_line(
     // Create HarfBuzz font from FreeType face
     hb_font_t* hb_font = hb_ft_font_create(ft_face, NULL);
 
-    // Shape with HarfBuzz
+    // Pick OpenType justification features (jalt, tug1, sch1, shr1, shr2)
+    // that stretch/shrink the line to `available_width`.
+    hb_feature_t features[8];
+    unsigned int feature_count = 0;
+    if (justify) {
+        feature_count = build_justify_features(
+            hb_font, text, available_width, features, 8);
+    }
+
     hb_buffer_t* buf = hb_buffer_create();
     hb_buffer_add_utf8(buf, text, -1, 0, -1);
     hb_buffer_set_direction(buf, HB_DIRECTION_RTL);
     hb_buffer_set_script(buf, HB_SCRIPT_ARABIC);
     hb_buffer_set_language(buf, hb_language_from_string("ar", -1));
 
-    if (justify) {
-        int lineWidth = (int)(available_width * 64);
-        hb_buffer_set_justify(buf, lineWidth);
-    }
-
-    hb_shape(hb_font, buf, NULL, 0);
+    hb_shape(hb_font, buf, features, feature_count);
 
     unsigned int glyph_count;
     hb_glyph_info_t*     infos = hb_buffer_get_glyph_infos(buf, &glyph_count);
@@ -319,18 +480,20 @@ OutlineResult* get_outline(
 
     hb_font_t* hb_font = hb_ft_font_create(ft_face, NULL);
 
+    hb_feature_t features[8];
+    unsigned int feature_count = 0;
+    if (justify) {
+        feature_count = build_justify_features(
+            hb_font, text, available_width, features, 8);
+    }
+
     hb_buffer_t* buf = hb_buffer_create();
     hb_buffer_add_utf8(buf, text, -1, 0, -1);
     hb_buffer_set_direction(buf, HB_DIRECTION_RTL);
     hb_buffer_set_script(buf, HB_SCRIPT_ARABIC);
     hb_buffer_set_language(buf, hb_language_from_string("ar", -1));
 
-    if (justify) {
-        int lineWidth = (int)(available_width * 64);
-        hb_buffer_set_justify(buf, lineWidth);
-    }
-
-    hb_shape(hb_font, buf, NULL, 0);
+    hb_shape(hb_font, buf, features, feature_count);
 
     unsigned int glyph_count;
     hb_glyph_info_t*     infos = hb_buffer_get_glyph_infos(buf, &glyph_count);
