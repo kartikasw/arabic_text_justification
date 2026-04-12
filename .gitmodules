@@ -1,6 +1,0 @@
-[submodule "third_party/harfbuzz"]
-	path = third_party/harfbuzz
-	url = https://github.com/DigitalKhatt/harfbuzz
-[submodule "third_party/freetype"]
-	path = third_party/freetype
-	url = https://gitlab.freedesktop.org/freetype/freetype.git

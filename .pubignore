@@ -1,38 +1,11 @@
-# Inherit from .gitignore
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
+# Consumers use the prebuilt native artifacts:
+#   android/src/main/jniLibs/<abi>/libarabic_text_justification.so
+#   ios/Frameworks/arabic_text_justification.xcframework
+# They never compile harfbuzz/freetype, so the source trees and native
+# build scaffolding are stripped from the published package.
+
+third_party/
+native/
+scripts/
 .build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
-*.iml
-*.ipr
-*.iws
-.idea/
-/pubspec.lock
-**/doc/api/
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-build/
-
-# Pub-specific ignores
-third_party/freetype/subprojects/dlg
-
-# Exclude third_party tests, docs, and tools
-third_party/harfbuzz/test/
-third_party/harfbuzz/docs/
-third_party/harfbuzz/util/
-third_party/harfbuzz/perf/
-third_party/harfbuzz/.ci/
-third_party/harfbuzz/.circleci/
-third_party/harfbuzz/.github/
-third_party/freetype/docs/
-third_party/freetype/tests/
-third_party/freetype/builds/
+example/
