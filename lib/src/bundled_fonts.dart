@@ -4,8 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 enum JustificationFont {
-  digitalKhatt('digitalkhatt.otf'),
-  madina('madina.otf');
+  digitalKhatt('digitalkhatt.otf');
 
   const JustificationFont(this.fileName);
 

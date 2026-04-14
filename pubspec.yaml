@@ -30,4 +30,3 @@ flutter:
         ffiPlugin: true
   assets:
     - assets/digitalkhatt.otf
-    - assets/madina.otf

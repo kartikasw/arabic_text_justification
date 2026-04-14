@@ -6,7 +6,7 @@ SDK_CMAKE="${ANDROID_SDK_CMAKE:-$HOME/Library/Android/sdk/cmake/3.22.1}"
 CMAKE="${CMAKE:-$SDK_CMAKE/bin/cmake}"
 NINJA="${NINJA:-$SDK_CMAKE/bin/ninja}"
 MIN_SDK=21
-ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
+ABIS=("arm64-v8a" "x86_64")
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/android/src/main/jniLibs"

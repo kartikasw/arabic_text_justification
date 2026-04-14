@@ -62,7 +62,7 @@ build_slice() {
 }
 
 build_slice "ios-arm64" "iphoneos" "arm64"
-build_slice "ios-simulator" "iphonesimulator" "arm64;x86_64"
+build_slice "ios-simulator" "iphonesimulator" "arm64"
 
 echo "==> Creating XCFramework"
 xcodebuild -create-xcframework \

@@ -1,5 +1,5 @@
 PODS:
-  - arabic_text_justification (0.0.1):
+  - arabic_text_justification (0.1.0):
     - Flutter
   - Flutter (1.0.0)
   - path_provider_foundation (0.0.1):
@@ -20,7 +20,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
 
 SPEC CHECKSUMS:
-  arabic_text_justification: 4a6fd0eecd8b9bafc080db93e64e955883da913a
+  arabic_text_justification: 8b8bf9105aa8fd627b550c9f9a8cfc4319f48966
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
   path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
 
