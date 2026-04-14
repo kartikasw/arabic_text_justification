@@ -31,8 +31,12 @@ class _BitmapPageState extends State<BitmapPage> {
     try {
       final dpr = MediaQuery.of(context).devicePixelRatio;
       final nativeWidth = width * dpr;
-      final lineHeight = height / page3Lines.length;
-      final fontSize = lineHeight * dpr / 1.3;
+      // DigitalKhatt font is calibrated for a line width of 17 em
+      // (PAGE_WIDTH=17000 / FONTSIZE=1000 in its source). Pick fontSize
+      // from width so the font's kashida alternates have the capacity
+      // they were designed for.
+      const kDigitalKhattLineRatio = 17.0;
+      final fontSize = nativeWidth / kDigitalKhattLineRatio;
 
       final lines = <RenderResult?>[];
       for (int i = 0; i < page3Lines.length; i++) {
@@ -157,23 +161,32 @@ class _BitmapPageState extends State<BitmapPage> {
         final displayWidth = constraints.maxWidth;
         final displayHeight = constraints.maxHeight;
 
-        final BoxFit fit;
-        final Alignment align;
-        if (alignment == LineAlignment.justify) {
-          fit = BoxFit.fill;
-          align = Alignment.center;
-        } else {
-          fit = BoxFit.contain;
-          align = switch (alignment) {
-            LineAlignment.center => Alignment.center,
-            LineAlignment.left => Alignment.centerLeft,
-            LineAlignment.right => Alignment.centerRight,
-            _ => Alignment.center,
-          };
-        }
-
-        final scaleX = displayWidth / result.bmpWidth;
+        // Uniform scale from height; if the line overshoots width after
+        // kashida, shrink horizontally only (Tarteel-style horizontal
+        // compression for extra-wide lines).
         final scaleY = displayHeight / result.bmpHeight;
+        final uniformWidth = result.bmpWidth * scaleY;
+        final bool overshoots = uniformWidth > displayWidth;
+        final scaleX = overshoots
+            ? displayWidth / result.bmpWidth
+            : scaleY;
+        final renderedWidth = result.bmpWidth * scaleX;
+
+        // BoxFit.fill when overshooting (use the non-uniform scaleX to
+        // compress). BoxFit.contain when fitting.
+        final fit = overshoots ? BoxFit.fill : BoxFit.contain;
+        final align = switch (alignment) {
+          LineAlignment.justify => Alignment.centerRight,
+          LineAlignment.center => Alignment.center,
+          LineAlignment.left => Alignment.centerLeft,
+          LineAlignment.right => Alignment.centerRight,
+        };
+        final double offsetX = switch (alignment) {
+          LineAlignment.justify => displayWidth - renderedWidth,
+          LineAlignment.center => (displayWidth - renderedWidth) / 2,
+          LineAlignment.left => 0.0,
+          LineAlignment.right => displayWidth - renderedWidth,
+        };
 
         return GestureDetector(
           onTapUp: (details) {
@@ -188,7 +201,7 @@ class _BitmapPageState extends State<BitmapPage> {
                   for (final pos in _ayahIndex[_selectedAyah!] ?? <(int, int)>[])
                     if (pos.$1 == lineIdx && pos.$2 < result.wordRects.length)
                       Positioned(
-                        left: result.wordRects[pos.$2].x * scaleX,
+                        left: offsetX + result.wordRects[pos.$2].x * scaleX,
                         top: result.wordRects[pos.$2].y * scaleY,
                         width: result.wordRects[pos.$2].width * scaleX,
                         height: result.wordRects[pos.$2].height * scaleY,

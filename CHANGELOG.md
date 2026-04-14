@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0
+
+- Add `JustificationFont` enum exposing bundled fonts (`digitalKhatt`, `madina`) with a `load()` helper that copies the asset to the application support directory and returns its path
+- Bundle `madina.otf` as a plugin asset
+- Ship prebuilt native binaries for Android and iOS; drop HarfBuzz/FreeType git submodules so consumers no longer need to build them from source
+- Implement kashida justification via the font's `LTAT`/`RTAT` variable-font axes instead of glyph-level tatweel insertion
+- Tighten kashida solver: bracket the full axis range and return the upper bracket so justified lines reach the target width instead of undershooting
+- Use available line width when sizing justified bitmaps and outlines so equal-width lines are no longer clipped
+
 ## 0.0.2
 
 - Add vector outline rendering via `getOutline` using `FT_Outline_Decompose`

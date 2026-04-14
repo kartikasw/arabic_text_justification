@@ -1,0 +1,2 @@
+/Users/kartika.sari/StudioProjects/arabic_text_justification/example/android/app/.cxx/Debug/6o2b3427/armeabi-v7a/CMakeFiles/edit_cache.dir
+/Users/kartika.sari/StudioProjects/arabic_text_justification/example/android/app/.cxx/Debug/6o2b3427/armeabi-v7a/CMakeFiles/rebuild_cache.dir

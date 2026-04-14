@@ -180,6 +180,29 @@ class ArabicTextJustification {
     return outlineResult;
   }
 
+  /// Pick the largest font size that makes every line in [texts] fit within
+  /// [availableWidth] at its natural (unstretched) shape. Returned size is
+  /// slightly below the fit (2% headroom) so the per-line tatweel solver
+  /// always has room to stretch the shorter lines up to the target.
+  static double calibrateFontSize(
+    String fontPath,
+    List<String> texts,
+    double availableWidth, {
+    double referenceFontSize = 100.0,
+    double headroom = 0.98,
+  }) {
+    double maxNatural = 0;
+    for (final text in texts) {
+      final result =
+          shapeLine(fontPath, text, referenceFontSize, availableWidth);
+      if (result.totalWidth > maxNatural) {
+        maxNatural = result.totalWidth;
+      }
+    }
+    if (maxNatural <= 0) return referenceFontSize;
+    return referenceFontSize * (availableWidth / maxNatural) * headroom;
+  }
+
   // ── Helpers ──
 
   static List<WordRect> _copyWordRects(

@@ -1,0 +1,1 @@
+/Users/kartika.sari/StudioProjects/arabic_text_justification/example/build/app/intermediates/cxx/Debug/6o2b3427/obj/x86_64

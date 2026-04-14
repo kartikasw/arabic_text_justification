@@ -1,14 +1,25 @@
 #include "harfbuzz_wrapper.h"
 #include <hb.h>
+#include <hb-ot.h>
 #include <hb-ft.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_OUTLINE_H
+#include FT_MULTIPLE_MASTERS_H
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
+#include <climits>
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include FT_OUTLINE_H
+
+#if defined(__ANDROID__)
+  #include <android/log.h>
+  #define ATJ_LOG(...) __android_log_print(ANDROID_LOG_INFO, "atj", __VA_ARGS__)
+#else
+  #define ATJ_LOG(...) fprintf(stderr, "[atj] " __VA_ARGS__), fprintf(stderr, "\n")
+#endif
 
 LineResult* shape_line(
         const char* font_path,
@@ -61,6 +72,198 @@ void free_line_result(LineResult* result) {
     }
 }
 
+// Decode one UTF-8 codepoint starting at `text + offset`. Returns the
+// codepoint, writes the number of bytes consumed into *out_len. Returns
+// 0 on invalid input.
+static uint32_t utf8_decode(const char* text, int offset, int text_len, int* out_len) {
+    unsigned char c = (unsigned char)text[offset];
+    if (c < 0x80) { *out_len = 1; return c; }
+    if ((c & 0xE0) == 0xC0 && offset + 1 < text_len) {
+        *out_len = 2;
+        return ((uint32_t)(c & 0x1F) << 6) | (text[offset+1] & 0x3F);
+    }
+    if ((c & 0xF0) == 0xE0 && offset + 2 < text_len) {
+        *out_len = 3;
+        return ((uint32_t)(c & 0x0F) << 12)
+             | ((uint32_t)(text[offset+1] & 0x3F) << 6)
+             |  (text[offset+2] & 0x3F);
+    }
+    if ((c & 0xF8) == 0xF0 && offset + 3 < text_len) {
+        *out_len = 4;
+        return ((uint32_t)(c & 0x07) << 18)
+             | ((uint32_t)(text[offset+1] & 0x3F) << 12)
+             | ((uint32_t)(text[offset+2] & 0x3F) << 6)
+             |  (text[offset+3] & 0x3F);
+    }
+    *out_len = 1;
+    return 0;
+}
+
+// Arabic dual-joining letters: connect to both sides, so their tail can
+// carry a kashida stretch.
+static bool is_dual_joining(uint32_t cp) {
+    switch (cp) {
+        case 0x0626: case 0x0628: case 0x062A: case 0x062B:
+        case 0x062C: case 0x062D: case 0x062E:
+        case 0x0633: case 0x0634: case 0x0635: case 0x0636:
+        case 0x0637: case 0x0638: case 0x0639: case 0x063A:
+        case 0x0641: case 0x0642: case 0x0643: case 0x0644:
+        case 0x0645: case 0x0646: case 0x0647: case 0x064A:
+            return true;
+        default: return false;
+    }
+}
+
+// A kashida can only stretch into a letter that joins on its right side,
+// i.e. dual-joining or right-joining Arabic letters.
+static bool is_joining_right(uint32_t cp) {
+    if (is_dual_joining(cp)) return true;
+    switch (cp) {
+        case 0x0622: case 0x0623: case 0x0624: case 0x0625:
+        case 0x0627: case 0x0629: case 0x062F: case 0x0630:
+        case 0x0631: case 0x0632: case 0x0648: case 0x0649:
+        case 0x0671:
+            return true;
+        default: return false;
+    }
+}
+
+// Shape `text` with the given features and return total advance in 26.6.
+static int measure_shaped(
+        hb_font_t*          hb_font,
+        const char*         text,
+        const hb_feature_t* features,
+        unsigned int        feature_count)
+{
+    hb_buffer_t* buf = hb_buffer_create();
+    hb_buffer_add_utf8(buf, text, -1, 0, -1);
+    hb_buffer_set_direction(buf, HB_DIRECTION_RTL);
+    hb_buffer_set_script(buf, HB_SCRIPT_ARABIC);
+    hb_buffer_set_language(buf, hb_language_from_string("ar", -1));
+    hb_shape(hb_font, buf, features, feature_count);
+    unsigned int c;
+    hb_glyph_position_t* p = hb_buffer_get_glyph_positions(buf, &c);
+    int w = 0;
+    for (unsigned int i = 0; i < c; i++) w += p[i].x_advance;
+    hb_buffer_destroy(buf);
+    return w;
+}
+
+// Find the LTAT/RTAT design value (axis range ±20) that stretches the line
+// from its natural width to target_px. HarfBuzz is told about the axis
+// values via hb_font_set_variations so its advances match what FreeType
+// will draw at the same coords. Linear probe then binary refine, since
+// HVAR delta mapping on this font is not strictly linear at low values.
+static float compute_line_tatweel(
+    hb_font_t*  hb_font,
+    const char* text,
+    float       target_px)
+{
+    int target_fixed = (int)(target_px * 64.0f);
+
+    auto set_and_measure = [&](float design_val) -> int {
+        hb_variation_t v[2] = {
+            { HB_TAG('L','T','A','T'), design_val },
+            { HB_TAG('R','T','A','T'), design_val },
+        };
+        hb_font_set_variations(hb_font, v, 2);
+        return measure_shaped(hb_font, text, NULL, 0);
+    };
+
+    int natural = set_and_measure(0.0f);
+
+    float lo = -20.0f, hi = 20.0f;
+    bool bracketed = false;
+    int prev_w = set_and_measure(-20.0f);
+    for (float t = -19.0f; t <= 20.0f; t += 1.0f) {
+        int w = set_and_measure(t);
+        if (prev_w < target_fixed && w >= target_fixed) {
+            lo = t - 1.0f; hi = t; bracketed = true; break;
+        }
+        prev_w = w;
+    }
+    if (!bracketed) {
+        // Target is outside the representable range. Clamp to nearer end.
+        float chosen = (natural >= target_fixed) ? -20.0f : 20.0f;
+        int w = set_and_measure(chosen);
+        ATJ_LOG("kashida: tatweel=%.2f (clamped), width %.1f -> %.1f (target %.1f, gap %.1f)",
+                chosen, natural / 64.0f, w / 64.0f, target_px,
+                (target_fixed - w) / 64.0f);
+        return chosen;
+    }
+
+    // Binary refine between lo and hi to 0.1 design units.
+    for (int iter = 0; iter < 8 && hi - lo > 0.1f; iter++) {
+        float mid = (lo + hi) * 0.5f;
+        int w = set_and_measure(mid);
+        if (w >= target_fixed) hi = mid; else lo = mid;
+    }
+
+    // Return the upper bracket so the measured width reaches target.
+    // Overshooting by <1px at 0.1 design-unit resolution is invisible;
+    // undershooting leaves a ragged column.
+    float chosen = hi;
+    int final_w = set_and_measure(chosen);
+    ATJ_LOG("kashida: tatweel=%.2f, width %.1f -> %.1f (target %.1f, gap %.1f)",
+            chosen, natural / 64.0f, final_w / 64.0f, target_px,
+            (target_fixed - final_w) / 64.0f);
+    return chosen;
+}
+
+// The DigitalKhatt fork's GSUB lookups (AlternateSetWithTatweels) populate
+// info[i].lefttatweel/righttatweel as a side effect of substituting to a
+// wider glyph. HarfBuzz uses those values to compute advance widths, but
+// FreeType needs the same values applied to the font's variable axes
+// (LTAT, RTAT) before FT_Load_Glyph, or else it draws the glyph's default
+// outline at the wider advance — looking like padding instead of kashida.
+// `norm` inputs are normalized F2DOT14-ish values (roughly [-1,+1]) as
+// stored in the glyph info; we scale to LTAT/RTAT design units (axis
+// range ±20) then to FT_Fixed 16.16.
+static void set_ft_tatweel(FT_Face face, double l_norm, double r_norm) {
+    FT_Fixed coords[2];
+    coords[0] = (FT_Fixed)(l_norm * 20.0 * 65536.0);
+    coords[1] = (FT_Fixed)(r_norm * 20.0 * 65536.0);
+    FT_Set_Var_Design_Coordinates(face, 2, coords);
+}
+
+// Residual gap absorber: after shaping with kashida features, if the total
+// line width is still less than target, widen inter-word space advances
+// equally across all space glyphs to close the gap.
+static void widen_spaces(
+    hb_buffer_t* buf,
+    const char*  text,
+    float        target_px)
+{
+    unsigned int count;
+    hb_glyph_info_t*     infos = hb_buffer_get_glyph_infos(buf, &count);
+    hb_glyph_position_t* poses = hb_buffer_get_glyph_positions(buf, &count);
+
+    int current = 0;
+    for (unsigned int i = 0; i < count; i++) current += poses[i].x_advance;
+    int target_fixed = (int)(target_px * 64.0f);
+    int delta = target_fixed - current;
+    if (delta <= 0) return;
+
+    std::vector<unsigned int> space_glyphs;
+    int text_len = (int)strlen(text);
+    unsigned int last_cluster = UINT_MAX;
+    for (unsigned int i = 0; i < count; i++) {
+        unsigned int c = infos[i].cluster;
+        if (c == last_cluster) continue;
+        if ((int)c < text_len && text[c] == ' ') space_glyphs.push_back(i);
+        last_cluster = c;
+    }
+    if (space_glyphs.empty()) return;
+
+    int per = delta / (int)space_glyphs.size();
+    int rem = delta - per * (int)space_glyphs.size();
+    for (size_t k = 0; k < space_glyphs.size(); k++) {
+        poses[space_glyphs[k]].x_advance += per + (k < (size_t)rem ? 1 : 0);
+    }
+    ATJ_LOG("kashida: +%.1f residual spread over %zu spaces",
+            delta / 64.0f, space_glyphs.size());
+}
+
 // Find word indices (byte offsets of space characters in UTF-8 text)
 static std::vector<int> find_word_boundaries(const char* text) {
     std::vector<int> boundaries;
@@ -101,22 +304,40 @@ RenderResult* render_line(
 
     FT_Set_Char_Size(ft_face, 0, (FT_F26Dot6)(font_size * 64), 72, 72);
 
-    // Create HarfBuzz font from FreeType face
-    hb_font_t* hb_font = hb_ft_font_create(ft_face, NULL);
+    // Create a native-OT HarfBuzz font.
+    hb_blob_t* blob = hb_blob_create_from_file(font_path);
+    hb_face_t* face = hb_face_create(blob, 0);
+    hb_font_t* hb_font = hb_font_create(face);
+    hb_font_set_scale(hb_font, (int)(font_size * 64), (int)(font_size * 64));
+    hb_ot_font_set_funcs(hb_font);
 
-    // Shape with HarfBuzz
+    // Kashida via variable-font axes: find the LTAT/RTAT design value that
+    // brings the line to target, then apply it to both HarfBuzz (so shaped
+    // advances match) and FreeType (so rendered outlines match). Without
+    // matching both sides, you get either wide advances + narrow glyphs
+    // (looks like padded space) or narrow advances + wide glyphs (overlap).
+    float tatweel_val = 0.0f;
+    if (justify) {
+        tatweel_val = compute_line_tatweel(hb_font, text, available_width);
+    }
+
     hb_buffer_t* buf = hb_buffer_create();
     hb_buffer_add_utf8(buf, text, -1, 0, -1);
     hb_buffer_set_direction(buf, HB_DIRECTION_RTL);
     hb_buffer_set_script(buf, HB_SCRIPT_ARABIC);
     hb_buffer_set_language(buf, hb_language_from_string("ar", -1));
 
-    if (justify) {
-        int lineWidth = (int)(available_width * 64);
-        hb_buffer_set_justify(buf, lineWidth);
-    }
-
+    // Shape with the chosen axis values already set on the font.
     hb_shape(hb_font, buf, NULL, 0);
+
+    // Mirror the axis to FreeType for outline rendering.
+    if (justify) {
+        FT_Fixed coords[2] = {
+            (FT_Fixed)(tatweel_val * 65536.0f),
+            (FT_Fixed)(tatweel_val * 65536.0f),
+        };
+        FT_Set_Var_Design_Coordinates(ft_face, 2, coords);
+    }
 
     unsigned int glyph_count;
     hb_glyph_info_t*     infos = hb_buffer_get_glyph_infos(buf, &glyph_count);
@@ -146,13 +367,16 @@ RenderResult* render_line(
     float text_width = total_advance / 64.0f;
     // Add padding for glyph overhangs (glyphs can extend beyond their advance)
     float padding = font_size * 0.5f;
-    int bmp_width  = (int)ceilf((text_width > 0 ? text_width : available_width) + padding);
+    float layout_width = (justify ? available_width : (text_width > 0 ? text_width : available_width));
+    int bmp_width  = (int)ceilf(layout_width + padding);
     int bmp_height = (int)(metric_height + 2); // +2 for safety
     int baseline_y = (int)ascender;
 
     if (bmp_width <= 0 || bmp_height <= 0) {
         hb_buffer_destroy(buf);
         hb_font_destroy(hb_font);
+        hb_face_destroy(face);
+        hb_blob_destroy(blob);
         FT_Done_Face(ft_face);
         FT_Done_FreeType(ft_lib);
         return NULL;
@@ -211,6 +435,8 @@ RenderResult* render_line(
 
     hb_buffer_destroy(buf);
     hb_font_destroy(hb_font);
+    hb_face_destroy(face);
+    hb_blob_destroy(blob);
     FT_Done_Face(ft_face);
     FT_Done_FreeType(ft_lib);
 
@@ -317,7 +543,16 @@ OutlineResult* get_outline(
 
     FT_Set_Char_Size(ft_face, 0, (FT_F26Dot6)(font_size * 64), 72, 72);
 
-    hb_font_t* hb_font = hb_ft_font_create(ft_face, NULL);
+    hb_blob_t* blob = hb_blob_create_from_file(font_path);
+    hb_face_t* face = hb_face_create(blob, 0);
+    hb_font_t* hb_font = hb_font_create(face);
+    hb_font_set_scale(hb_font, (int)(font_size * 64), (int)(font_size * 64));
+    hb_ot_font_set_funcs(hb_font);
+
+    float tatweel_val = 0.0f;
+    if (justify) {
+        tatweel_val = compute_line_tatweel(hb_font, text, available_width);
+    }
 
     hb_buffer_t* buf = hb_buffer_create();
     hb_buffer_add_utf8(buf, text, -1, 0, -1);
@@ -325,12 +560,15 @@ OutlineResult* get_outline(
     hb_buffer_set_script(buf, HB_SCRIPT_ARABIC);
     hb_buffer_set_language(buf, hb_language_from_string("ar", -1));
 
-    if (justify) {
-        int lineWidth = (int)(available_width * 64);
-        hb_buffer_set_justify(buf, lineWidth);
-    }
-
     hb_shape(hb_font, buf, NULL, 0);
+
+    if (justify) {
+        FT_Fixed coords[2] = {
+            (FT_Fixed)(tatweel_val * 65536.0f),
+            (FT_Fixed)(tatweel_val * 65536.0f),
+        };
+        FT_Set_Var_Design_Coordinates(ft_face, 2, coords);
+    }
 
     unsigned int glyph_count;
     hb_glyph_info_t*     infos = hb_buffer_get_glyph_infos(buf, &glyph_count);
@@ -406,6 +644,8 @@ OutlineResult* get_outline(
 
     hb_buffer_destroy(buf);
     hb_font_destroy(hb_font);
+    hb_face_destroy(face);
+    hb_blob_destroy(blob);
     FT_Done_Face(ft_face);
     FT_Done_FreeType(ft_lib);
 
@@ -430,7 +670,10 @@ OutlineResult* get_outline(
     result->word_count  = word_count;
     result->ascender    = ascender;
     result->descender   = descender;
-    result->total_width = cursor_x + padding * 0.5f;
+
+    result->total_width = justify
+        ? (available_width + padding)
+        : (cursor_x + padding * 0.5f);
 
     return result;
 }

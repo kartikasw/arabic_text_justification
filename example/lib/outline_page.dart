@@ -31,8 +31,8 @@ class _OutlinePageState extends State<OutlinePage> {
     try {
       final dpr = MediaQuery.of(context).devicePixelRatio;
       final nativeWidth = width * dpr;
-      final lineHeight = height / page3Lines.length;
-      final fontSize = lineHeight * dpr / 1.3;
+      const kDigitalKhattLineRatio = 17.0;
+      final fontSize = nativeWidth / kDigitalKhattLineRatio;
 
       final lines = <OutlineResult?>[];
       for (int i = 0; i < page3Lines.length; i++) {
@@ -160,24 +160,22 @@ class _OutlinePageState extends State<OutlinePage> {
         final displayHeight = constraints.maxHeight;
         final lineHeight = result.ascender - result.descender;
 
-        final double scaleX, scaleY, offsetX;
-        if (alignment == LineAlignment.justify) {
-          scaleX = displayWidth / result.totalWidth;
-          scaleY = displayHeight / lineHeight;
-          offsetX = 0;
-        } else {
-          // Uniform scale to preserve aspect ratio
-          final scale = displayHeight / lineHeight;
-          scaleX = scale;
-          scaleY = scale;
-          final renderedWidth = result.totalWidth * scale;
-          offsetX = switch (alignment) {
-            LineAlignment.center => (displayWidth - renderedWidth) / 2,
-            LineAlignment.left => 0.0,
-            LineAlignment.right => displayWidth - renderedWidth,
-            _ => 0.0,
-          };
-        }
+        // Uniform scale from height. Lines that overshoot the display
+        // width after kashida features get horizontally compressed
+        // (scaleX < scaleY) — Tarteel's "horizontal compression" for
+        // extra-wide lines. Lines that fit use uniform scale.
+        final scaleY = displayHeight / lineHeight;
+        final uniformWidth = result.totalWidth * scaleY;
+        final double scaleX = uniformWidth > displayWidth
+            ? displayWidth / result.totalWidth
+            : scaleY;
+        final renderedWidth = result.totalWidth * scaleX;
+        final double offsetX = switch (alignment) {
+          LineAlignment.justify => displayWidth - renderedWidth,
+          LineAlignment.center => (displayWidth - renderedWidth) / 2,
+          LineAlignment.left => 0.0,
+          LineAlignment.right => displayWidth - renderedWidth,
+        };
 
         return GestureDetector(
           onTapUp: (details) {
