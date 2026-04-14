@@ -1,7 +1,7 @@
 // The Android Gradle Plugin builds the native code with the Android NDK.
 
-group = "com.example.arabic_text_justification"
-version = "1.0"
+group = "com.kartikadev.arabic_text_justification"
+version = "0.1.0"
 
 buildscript {
     repositories {
@@ -25,7 +25,7 @@ rootProject.allprojects {
 apply plugin: "com.android.library"
 
 android {
-    namespace = "com.example.arabic_text_justification"
+    namespace = "com.kartikadev.arabic_text_justification"
     compileSdk = 35
 
     sourceSets {
