@@ -1,7 +1,5 @@
-import 'dart:io';
+import 'package:arabic_text_justification/arabic_text_justification.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'bitmap_page.dart';
 import 'outline_page.dart';
@@ -63,17 +61,6 @@ Map<int, List<(int, int)>> buildAyahIndex(List<PageLine> lines) {
   return index;
 }
 
-Future<String> copyFontToFilesystem() async {
-  final dir = await getApplicationSupportDirectory();
-  final fontFile = File('${dir.path}/digitalkhatt.otf');
-  if (!await fontFile.exists()) {
-    final data = await rootBundle
-        .load('packages/arabic_text_justification/assets/digitalkhatt.otf');
-    await fontFile.writeAsBytes(data.buffer.asUint8List());
-  }
-  return fontFile.path;
-}
-
 class _MyAppState extends State<MyApp> {
   String? _fontPath;
   int _currentPage = 0;
@@ -85,7 +72,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _loadFont() async {
-    final path = await copyFontToFilesystem();
+    final path = await JustificationFont.digitalKhatt.load();
     setState(() => _fontPath = path);
   }
 
