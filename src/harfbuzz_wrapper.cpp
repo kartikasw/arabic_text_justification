@@ -171,20 +171,25 @@ static float compute_line_tatweel(
     };
 
     int natural = set_and_measure(0.0f);
-    if (natural >= target_fixed) {
-        // Reset to no stretch and bail.
-        hb_font_set_variations(hb_font, NULL, 0);
-        return 0.0f;
-    }
 
-    // Coarse sweep to bracket the right value. The axis design range is
-    // 0..20; we step in 1.0 increments until the measured width meets or
-    // exceeds target, then refine.
-    float lo = 0.0f, hi = 20.0f;
-    for (float t = 1.0f; t <= 20.0f; t += 1.0f) {
+    float lo = -20.0f, hi = 20.0f;
+    bool bracketed = false;
+    int prev_w = set_and_measure(-20.0f);
+    for (float t = -19.0f; t <= 20.0f; t += 1.0f) {
         int w = set_and_measure(t);
-        if (w >= target_fixed) { lo = t - 1.0f; hi = t; break; }
-        if (t >= 20.0f) { lo = hi = 20.0f; }
+        if (prev_w < target_fixed && w >= target_fixed) {
+            lo = t - 1.0f; hi = t; bracketed = true; break;
+        }
+        prev_w = w;
+    }
+    if (!bracketed) {
+        // Target is outside the representable range. Clamp to nearer end.
+        float chosen = (natural >= target_fixed) ? -20.0f : 20.0f;
+        int w = set_and_measure(chosen);
+        ATJ_LOG("kashida: tatweel=%.2f (clamped), width %.1f -> %.1f (target %.1f, gap %.1f)",
+                chosen, natural / 64.0f, w / 64.0f, target_px,
+                (target_fixed - w) / 64.0f);
+        return chosen;
     }
 
     // Binary refine between lo and hi to 0.1 design units.
@@ -194,7 +199,10 @@ static float compute_line_tatweel(
         if (w >= target_fixed) hi = mid; else lo = mid;
     }
 
-    float chosen = lo;
+    // Return the upper bracket so the measured width reaches target.
+    // Overshooting by <1px at 0.1 design-unit resolution is invisible;
+    // undershooting leaves a ragged column.
+    float chosen = hi;
     int final_w = set_and_measure(chosen);
     ATJ_LOG("kashida: tatweel=%.2f, width %.1f -> %.1f (target %.1f, gap %.1f)",
             chosen, natural / 64.0f, final_w / 64.0f, target_px,
@@ -359,7 +367,8 @@ RenderResult* render_line(
     float text_width = total_advance / 64.0f;
     // Add padding for glyph overhangs (glyphs can extend beyond their advance)
     float padding = font_size * 0.5f;
-    int bmp_width  = (int)ceilf((text_width > 0 ? text_width : available_width) + padding);
+    float layout_width = (justify ? available_width : (text_width > 0 ? text_width : available_width));
+    int bmp_width  = (int)ceilf(layout_width + padding);
     int bmp_height = (int)(metric_height + 2); // +2 for safety
     int baseline_y = (int)ascender;
 
@@ -661,7 +670,10 @@ OutlineResult* get_outline(
     result->word_count  = word_count;
     result->ascender    = ascender;
     result->descender   = descender;
-    result->total_width = cursor_x + padding * 0.5f;
+
+    result->total_width = justify
+        ? (available_width + padding)
+        : (cursor_x + padding * 0.5f);
 
     return result;
 }
