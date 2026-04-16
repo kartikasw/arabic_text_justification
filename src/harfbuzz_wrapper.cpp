@@ -365,9 +365,8 @@ RenderResult* render_line(
     float metric_height = ascender - descender;
 
     float text_width = total_advance / 64.0f;
-    // Add padding for glyph overhangs (glyphs can extend beyond their advance)
     float padding = font_size * 0.5f;
-    float layout_width = (justify ? available_width : (text_width > 0 ? text_width : available_width));
+    float layout_width = text_width > available_width ? text_width : available_width;
     int bmp_width  = (int)ceilf(layout_width + padding);
     int bmp_height = (int)(metric_height + 2); // +2 for safety
     int baseline_y = (int)ascender;
@@ -596,8 +595,7 @@ OutlineResult* get_outline(
     funcs.cubic_to = outline_cubic_to;
 
     GlyphOutline* glyph_outlines = (GlyphOutline*)malloc(sizeof(GlyphOutline) * glyph_count);
-    float padding = font_size * 0.5f;
-    float cursor_x = padding * 0.5f;
+    float cursor_x = 0.0f;
 
     for (unsigned int i = 0; i < glyph_count; i++) {
         FT_UInt glyph_index = infos[i].codepoint;
@@ -671,9 +669,9 @@ OutlineResult* get_outline(
     result->ascender    = ascender;
     result->descender   = descender;
 
-    result->total_width = justify
-        ? (available_width + padding)
-        : (cursor_x + padding * 0.5f);
+    result->total_width = (justify && cursor_x < available_width)
+        ? available_width
+        : cursor_x;
 
     return result;
 }

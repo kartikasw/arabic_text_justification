@@ -25,7 +25,7 @@ class _OutlinePageState extends State<OutlinePage> {
     _ayahIndex = buildAyahIndex(page3Lines);
   }
 
-  void _renderPage(double width, double height) {
+  void _renderPage(double width) {
     if (_rendering) return;
     _rendering = true;
     try {
@@ -59,19 +59,17 @@ class _OutlinePageState extends State<OutlinePage> {
 
   int? _findAyahForWord(int lineIndex, int wordIndex) {
     for (final entry in _ayahIndex.entries) {
-      if (entry.value.any((pos) => pos.$1 == lineIndex && pos.$2 == wordIndex)) {
+      if (entry.value
+          .any((pos) => pos.$1 == lineIndex && pos.$2 == wordIndex)) {
         return entry.key;
       }
     }
     return null;
   }
 
-  void _onTapLine(int lineIndex, OutlineResult result, Offset localPosition,
-      double displayWidth, double displayHeight) {
-    final scaleX = displayWidth / result.totalWidth;
-    final scaleY = displayHeight / (result.ascender - result.descender);
-
-    final tapX = localPosition.dx / scaleX;
+  void _onTapLine(
+      int lineIndex, OutlineResult result, Offset localPosition, double scaleX, double scaleY, double offsetX) {
+    final tapX = (localPosition.dx - offsetX) / scaleX;
     final tapY = localPosition.dy / scaleY;
 
     for (int w = 0; w < result.wordRects.length; w++) {
@@ -119,13 +117,13 @@ class _OutlinePageState extends State<OutlinePage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        const padding = EdgeInsets.fromLTRB(8, 8, 8, 16);
+        const padding = EdgeInsets.fromLTRB(8, 0, 8, 16);
         final contentWidth = constraints.maxWidth - padding.horizontal;
         final contentHeight = constraints.maxHeight - padding.vertical;
 
         if (_lines.isEmpty && !_rendering) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _renderPage(contentWidth, contentHeight);
+            _renderPage(contentWidth);
           });
         }
 
@@ -133,83 +131,73 @@ class _OutlinePageState extends State<OutlinePage> {
           return const Center(child: CircularProgressIndicator());
         }
 
+        // Compute natural height per line (uniform scale from width).
+        final naturalHeights = <double>[];
+        for (final result in _lines) {
+          if (result == null) {
+            naturalHeights.add(0);
+            continue;
+          }
+          final lineHeight = result.ascender - result.descender;
+          final scaleX = contentWidth / result.totalWidth;
+          naturalHeights.add(lineHeight * scaleX);
+        }
+        final totalNatural = naturalHeights.fold(0.0, (a, b) => a + b);
+        final vFactor =
+            totalNatural > contentHeight ? contentHeight / totalNatural : 1.0;
+
         return Padding(
           padding: padding,
           child: Column(
             children: List.generate(_lines.length, (lineIdx) {
               final result = _lines[lineIdx];
-              if (result == null) {
-                return const Expanded(child: SizedBox.shrink());
+              if (result == null) return const SizedBox.shrink();
+
+              final alignment = page3Lines[lineIdx].alignment;
+              final lineHeight = result.ascender - result.descender;
+              final scaleX = contentWidth / result.totalWidth;
+              final scaleY = scaleX * vFactor;
+              final displayHeight = lineHeight * scaleY;
+
+              final renderedWidth = result.totalWidth * scaleX;
+              final double offsetX = switch (alignment) {
+                LineAlignment.justify => contentWidth - renderedWidth,
+                LineAlignment.center => (contentWidth - renderedWidth) / 2,
+                LineAlignment.left => 0.0,
+                LineAlignment.right => contentWidth - renderedWidth,
+              };
+
+              final highlightIndices = <int>[];
+              if (_selectedAyah != null) {
+                for (final pos
+                    in _ayahIndex[_selectedAyah!] ?? <(int, int)>[]) {
+                  if (pos.$1 == lineIdx &&
+                      pos.$2 < result.wordRects.length) {
+                    highlightIndices.add(pos.$2);
+                  }
+                }
               }
-              return Expanded(
-                child: _buildInteractiveLine(lineIdx, result),
-              );
-            }),
-          ),
-        );
-      },
-    );
-  }
 
-  Widget _buildInteractiveLine(int lineIdx, OutlineResult result) {
-    final alignment = page3Lines[lineIdx].alignment;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final displayWidth = constraints.maxWidth;
-        final displayHeight = constraints.maxHeight;
-        final lineHeight = result.ascender - result.descender;
-
-        // Uniform scale from height. Lines that overshoot the display
-        // width after kashida features get horizontally compressed
-        // (scaleX < scaleY) — Tarteel's "horizontal compression" for
-        // extra-wide lines. Lines that fit use uniform scale.
-        final scaleY = displayHeight / lineHeight;
-        final uniformWidth = result.totalWidth * scaleY;
-        final double scaleX = uniformWidth > displayWidth
-            ? displayWidth / result.totalWidth
-            : scaleY;
-        final renderedWidth = result.totalWidth * scaleX;
-        final double offsetX = switch (alignment) {
-          LineAlignment.justify => displayWidth - renderedWidth,
-          LineAlignment.center => (displayWidth - renderedWidth) / 2,
-          LineAlignment.left => 0.0,
-          LineAlignment.right => displayWidth - renderedWidth,
-        };
-
-        return GestureDetector(
-          onTapUp: (details) {
-            _onTapLine(lineIdx, result, details.localPosition,
-                displayWidth, displayHeight);
-          },
-          child: SizedBox(
-            width: displayWidth,
-            height: displayHeight,
-            child: Stack(
-              children: [
-                if (_selectedAyah != null)
-                  for (final pos in _ayahIndex[_selectedAyah!] ?? <(int, int)>[])
-                    if (pos.$1 == lineIdx && pos.$2 < result.wordRects.length)
-                      Positioned(
-                        left: offsetX + result.wordRects[pos.$2].x * scaleX,
-                        top: result.wordRects[pos.$2].y * scaleY,
-                        width: result.wordRects[pos.$2].width * scaleX,
-                        height: result.wordRects[pos.$2].height * scaleY,
-                        child: ColoredBox(
-                          color: Colors.amber.withValues(alpha: 0.3),
-                        ),
-                      ),
-                CustomPaint(
-                  size: Size(displayWidth, displayHeight),
-                  painter: _ScaledOutlinePainter(
-                    outline: result,
-                    scaleX: scaleX,
-                    scaleY: scaleY,
-                    offsetX: offsetX,
+              return GestureDetector(
+                onTapUp: (details) {
+                  _onTapLine(lineIdx, result, details.localPosition,
+                      scaleX, scaleY, offsetX);
+                },
+                child: Container(
+                  color: lineIdx % 2 == 0 ? Colors.amber : Colors.green,
+                  child: CustomPaint(
+                    size: Size(contentWidth, displayHeight),
+                    painter: _ScaledOutlinePainter(
+                      outline: result,
+                      scaleX: scaleX,
+                      scaleY: scaleY,
+                      offsetX: offsetX,
+                      highlightIndices: highlightIndices,
+                    ),
                   ),
                 ),
-              ],
-            ),
+              );
+            }),
           ),
         );
       },
@@ -222,23 +210,44 @@ class _ScaledOutlinePainter extends CustomPainter {
   final double scaleX;
   final double scaleY;
   final double offsetX;
+  final List<int> highlightIndices;
 
   _ScaledOutlinePainter({
     required this.outline,
     required this.scaleX,
     required this.scaleY,
     this.offsetX = 0,
+    this.highlightIndices = const [],
   });
 
   @override
   void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+
+    if (highlightIndices.isNotEmpty) {
+      final hlPaint = Paint()
+        ..color = Colors.amber.withValues(alpha: 0.3);
+      for (final w in highlightIndices) {
+        final rect = outline.wordRects[w];
+        canvas.drawRect(
+          Rect.fromLTWH(
+            offsetX + rect.x * scaleX,
+            rect.y * scaleY,
+            rect.width * scaleX,
+            rect.height * scaleY,
+          ),
+          hlPaint,
+        );
+      }
+    }
+
     final paint = Paint()
       ..color = Colors.black
       ..style = PaintingStyle.fill;
 
     final ascender = outline.ascender;
 
-    canvas.save();
     canvas.translate(offsetX, 0);
     canvas.scale(scaleX, scaleY);
 
@@ -276,5 +285,6 @@ class _ScaledOutlinePainter extends CustomPainter {
       outline != oldDelegate.outline ||
       scaleX != oldDelegate.scaleX ||
       scaleY != oldDelegate.scaleY ||
-      offsetX != oldDelegate.offsetX;
+      offsetX != oldDelegate.offsetX ||
+      highlightIndices != oldDelegate.highlightIndices;
 }

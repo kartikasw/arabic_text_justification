@@ -181,7 +181,8 @@ class ArabicTextJustification {
   }
 
   /// Pick the largest font size that makes every line in [texts] fit within
-  /// [availableWidth] at its natural (unstretched) shape. Returned size is
+  /// [availableWidth] — and, if [availableHeight] is given, also fit the line
+  /// height (ascender − descender) within that height. Returned size is
   /// slightly below the fit (2% headroom) so the per-line tatweel solver
   /// always has room to stretch the shorter lines up to the target.
   static double calibrateFontSize(
@@ -201,6 +202,46 @@ class ArabicTextJustification {
     }
     if (maxNatural <= 0) return referenceFontSize;
     return referenceFontSize * (availableWidth / maxNatural) * headroom;
+  }
+
+  /// Compute the font size that makes the natural (unjustified) text width
+  /// fit within [width], with [headroom] so kashida has room to stretch
+  /// shorter lines without overshooting. Lines that are still wider after
+  /// kashida get horizontal compression on the display side.
+  static double fontSizeForWidth(
+    String fontPath,
+    String text,
+    double width, {
+    double referenceFontSize = 100.0,
+    double headroom = 0.98,
+  }) {
+    final shape = shapeLine(fontPath, text, referenceFontSize, width);
+    if (shape.totalWidth <= 0) return referenceFontSize;
+    return referenceFontSize * (width / shape.totalWidth) * headroom;
+  }
+
+  /// Render a line whose font size is derived from [width].
+  /// Kashida justification stretches the line to fill [width].
+  static Future<RenderResult?> renderLineToFit(
+    String fontPath,
+    String text,
+    double width, {
+    bool justify = false,
+  }) {
+    final fontSize = fontSizeForWidth(fontPath, text, width);
+    return renderLine(fontPath, text, fontSize, width, justify: justify);
+  }
+
+  /// Get the outline for a line whose font size is derived from [width].
+  /// Kashida justification stretches the line to fill [width].
+  static OutlineResult? getOutlineToFit(
+    String fontPath,
+    String text,
+    double width, {
+    bool justify = false,
+  }) {
+    final fontSize = fontSizeForWidth(fontPath, text, width);
+    return getOutline(fontPath, text, fontSize, width, justify: justify);
   }
 
   // ── Helpers ──
