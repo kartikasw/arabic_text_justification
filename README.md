@@ -2,39 +2,105 @@
 
 A Flutter FFI plugin for Arabic text rendering with kashida-based justification using [HarfBuzz](https://harfbuzz.github.io/) and [FreeType](https://freetype.org/).
 
-Supports two rendering modes: **bitmap** and **vector outline**.
+Ships two high-level line widgets plus the underlying shaping API. Supports both **bitmap** and **vector outline** rendering.
 
 ## Demo
-
-<img width="200" height="445" alt="screenshot" src="https://github.com/user-attachments/assets/22aee348-7d6f-431e-9218-f6a4fdce5423" />
-&nbsp;&nbsp;&nbsp;&nbsp;
-<img width="200" height="445" alt="demo" src="https://github.com/user-attachments/assets/c7c25982-927a-4f87-b6f6-7a5263752579" />
+<img width="150" alt="Home" src="https://github.com/user-attachments/assets/28c6de69-8540-483c-94c9-cbb1b67564c6" />
+<img width="150" alt="Recording 1" src="https://github.com/user-attachments/assets/9dc766d5-63ae-4176-9e05-478b4ba57a1a" />
+<img width="150" alt="Recording 2" src="https://github.com/user-attachments/assets/f245e9d1-5e4c-4943-a461-a17605b0b275" />
+<img width="150" alt="Recording 3" src="https://github.com/user-attachments/assets/e590cd7e-5143-481c-aee6-9dedc5a780ef" />
 
 ## How It Works
 
 1. **Text shaping** — HarfBuzz applies Arabic letter forms, ligatures, and optional kashida justification.
-2. **Glyph processing** — FreeType either rasterizes glyphs to bitmap or extracts vector bezier outlines.
-3. **Word mapping** — per-word bounding rectangles and glyph-to-word indices for hit-testing and animation.
+2. **Glyph processing** — FreeType either rasterizes glyphs to a bitmap or extracts vector bezier outlines.
+3. **Word mapping** — per-word bounding rectangles and glyph-to-word indices are returned for hit-testing and animation.
 
-## Usage
+## Capabilities
+
+### Render a justified RTL line
+
+Either `JustifiedArabicLine` (vector) or `JustifiedArabicBitmapLine` (bitmap) takes a list of words and renders the line.
 
 ```dart
-import 'package:arabic_text_justification/arabic_text_justification.dart';
-
-// Bitmap rendering
-final result = await ArabicTextJustification.renderLine(
-  fontPath, text, fontSize, availableWidth,
+JustifiedArabicLine(
+  words: ['بِسْمِ', 'ٱللَّهِ', 'ٱلرَّحْمَٰنِ', 'ٱلرَّحِيمِ'],
   justify: true,
-);
-RawImage(image: result.image, fit: BoxFit.fill);
-
-// Vector outline rendering
-final outline = ArabicTextJustification.getOutline(
-  fontPath, text, fontSize, availableWidth,
-  justify: true,
-);
-CustomPaint(painter: ArabicOutlinePainter(outline: outline));
+  fontSize: 24, // or null to auto-fit
+  padding: EdgeInsets.symmetric(vertical: 4),
+)
 ```
+
+### Tap a word — or a verse marker
+
+Pass a `verseMarker` substring. Regular word taps fire `onWordTap(index, word)`; words containing the marker fire `onMarkerTap(index, word)` instead. Both return the tapped word's text + its index.
+
+```dart
+JustifiedArabicLine(
+  words: line.words,
+  verseMarker: '۝',
+  onWordTap: (i, w) => print('word: $w'),
+  onMarkerTap: (i, w) => print('verse end: $w'),
+)
+```
+
+### Highlight arbitrary words
+
+`highlightedWordIndices` + `highlightColor` paint a background behind any subset of words, intended for tap-selection feedback. Independent of any animation.
+
+```dart
+JustifiedArabicLine(
+  words: line.words,
+  highlightedWordIndices: {2, 3, 4},
+  highlightColor: Colors.blue.withOpacity(0.2),
+)
+```
+
+### Animate progress through words
+
+`WordProgress` bundles passed/active word state for read-along / recitation / subtitle-style animation. Two independent effects per state, each opt-in:
+
+- **Background highlight** — `passedHighlightColor` / `activeHighlightColor`
+- **Glyph tint** — `passedColor` / `activeColor` (falls back to default text color when null)
+
+`WordProgressStyle` picks the active-word animation:
+
+- `.sweep` — right-to-left partial fill driven by `activeProgress` (0..1)
+- `.whole` — discrete on/off per word
+
+```dart
+JustifiedArabicLine(
+  words: line.words,
+  wordProgress: WordProgress(
+    passedWordIndices: {0, 1, 2},
+    passedColor: Colors.green,
+    activeWordIndex: 3,
+    activeProgress: 0.6,
+    activeColor: Colors.orange,
+    style: WordProgressStyle.sweep,
+  ),
+)
+```
+
+### Hide words until they're recited
+
+`hiddenWordIndices` omits glyphs, highlights, active fill, and tap hits for the listed words. Combined with `verseMarker`, callers can keep ayah markers visible while hiding the verse body, then progressively reveal words as the reader recites them.
+
+```dart
+JustifiedArabicLine(
+  words: line.words,
+  verseMarker: '۝',
+  wordProgress: WordProgress(
+    hiddenWordIndices: notYetRevealed,
+    passedWordIndices: revealed,
+    passedColor: Colors.black,
+  ),
+)
+```
+
+## Example
+
+See `example/` — four tabs cover the Widget, Bitmap, timer-driven progress animation, and the memorization / reveal mode end-to-end.
 
 ## Acknowledgments
 
