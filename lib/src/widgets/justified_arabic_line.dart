@@ -3,30 +3,75 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../ffi/native_api.dart';
-import '../bundled_fonts.dart';
 import '../models/models.dart';
+import 'line_common.dart';
 import 'painter.dart';
 
-class JustifiedArabicLine extends StatefulWidget {
+class JustifiedArabicLine extends StatefulWidget
+    implements JustifiedArabicLineConfig {
+  @override
   final List<String> words;
 
+  @override
   final bool justify;
 
   final Color color;
 
+  /// Word indices (into [words]) to render with a highlight background.
+  final Set<int>? highlightedWordIndices;
+
+  /// Background color for highlighted words.
+  final Color highlightColor;
+
+  /// Substring that identifies a word as a verse marker (e.g. '۝').
+  /// When set, taps on a word containing this substring fire [onMarkerTap]
+  /// instead of [onWordTap].
+  @override
+  final String? verseMarker;
+
+  /// Called when the user taps a word that does not contain [verseMarker].
+  /// Arguments are the tapped word's index into [words] and its text.
+  @override
+  final void Function(int index, String word)? onWordTap;
+
+  /// Called when the user taps a word that contains [verseMarker].
+  /// Arguments are the tapped word's index into [words] and its text.
+  @override
+  final void Function(int index, String word)? onMarkerTap;
+
   /// If null, the bundled DigitalKhatt font is loaded automatically.
+  @override
   final String? fontPath;
 
   /// If null, the size is auto-calculated to fill the available width.
+  @override
   final double? fontSize;
+
+  /// Outer padding around the line. Useful for vertical spacing between
+  /// consecutive lines, e.g. `EdgeInsets.symmetric(vertical: 4)`.
+  final EdgeInsetsGeometry? padding;
+
+  /// Alignment of the line within the available width. When null the widget
+  /// reports its intrinsic size (tight to content for `justify=false`), so
+  /// the caller picks the position via a parent (Row, Column, Align, etc).
+  /// Set this when you want the widget itself to fill the width and place
+  /// the content at the given alignment (e.g. [Alignment.centerRight]).
+  final AlignmentGeometry? alignment;
 
   const JustifiedArabicLine({
     super.key,
     required this.words,
     this.justify = true,
     this.color = Colors.black,
+    this.highlightedWordIndices,
+    this.highlightColor = const Color(0x332196F3),
+    this.verseMarker,
+    this.onWordTap,
+    this.onMarkerTap,
     this.fontPath,
     this.fontSize,
+    this.padding,
+    this.alignment,
   });
 
   @override
@@ -35,6 +80,7 @@ class JustifiedArabicLine extends StatefulWidget {
 
 class _PreparedLine {
   final List<ui.Path> paths;
+  final List<Rect> wordRects;
   final double minX;
   final double minY;
   final double width;
@@ -42,6 +88,7 @@ class _PreparedLine {
 
   const _PreparedLine({
     required this.paths,
+    required this.wordRects,
     required this.minX,
     required this.minY,
     required this.width,
@@ -49,61 +96,28 @@ class _PreparedLine {
   });
 }
 
-class _JustifiedArabicLineState extends State<JustifiedArabicLine> {
-  String? _fontPath;
+class _JustifiedArabicLineState extends State<JustifiedArabicLine>
+    with JustifiedLineStateMixin<JustifiedArabicLine> {
   _PreparedLine? _prepared;
-  double? _renderedWidth;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.fontPath != null) {
-      _fontPath = widget.fontPath;
-    } else {
-      _loadFont();
-    }
-  }
 
   @override
   void didUpdateWidget(JustifiedArabicLine oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.fontPath != oldWidget.fontPath) {
-      _fontPath = widget.fontPath;
-      _prepared = null;
-      _renderedWidth = null;
-      if (_fontPath == null) _loadFont();
-    }
-    if (widget.words != oldWidget.words ||
-        widget.justify != oldWidget.justify ||
-        widget.fontSize != oldWidget.fontSize) {
-      _prepared = null;
-      _renderedWidth = null;
-    }
+    handleConfigChange(oldWidget);
   }
 
-  Future<void> _loadFont() async {
-    final path = await JustificationFont.digitalKhatt.load();
-    if (mounted) setState(() => _fontPath = path);
-  }
+  @override
+  void resetRender() => _prepared = null;
 
   void _render(double width) {
-    final fontPath = _fontPath;
+    final fontPath = this.fontPath;
     if (fontPath == null) return;
 
-    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
     final nativeWidth = width * dpr;
     final text = widget.words.join(' ');
 
-    final double fontSize;
-    if (widget.fontSize != null) {
-      fontSize = widget.fontSize! * dpr;
-    } else {
-      fontSize = ArabicTextJustification.fontSizeForWidth(
-        fontPath,
-        text,
-        nativeWidth,
-      );
-    }
+    final fontSize = resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
 
     final outline = ArabicTextJustification.getOutline(
       fontPath,
@@ -117,7 +131,7 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine> {
     final prepared = _prepare(outline);
     setState(() {
       _prepared = prepared;
-      _renderedWidth = width;
+      renderedWidth = width;
     });
   }
 
@@ -169,13 +183,24 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine> {
       paths.add(path);
     }
 
+    final wordRects = [
+      for (final w in outline.wordRects)
+        Rect.fromLTWH(w.x, w.y, w.width, w.height),
+    ];
+
     if (maxX <= minX || maxY <= minY) {
-      return const _PreparedLine(
-        paths: [], minX: 0, minY: 0, width: 0, height: 0,
+      return _PreparedLine(
+        paths: const [],
+        wordRects: wordRects,
+        minX: 0,
+        minY: 0,
+        width: 0,
+        height: 0,
       );
     }
     return _PreparedLine(
       paths: paths,
+      wordRects: wordRects,
       minX: minX,
       minY: minY,
       width: maxX - minX,
@@ -183,19 +208,53 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine> {
     );
   }
 
+  double _computeScale(double width, _PreparedLine prepared) {
+    if (widget.justify) return width / prepared.width;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final naturalScale = 1 / dpr;
+    final fitScale = width / prepared.width;
+    return naturalScale < fitScale ? naturalScale : fitScale;
+  }
+
+  void _handleTap(Offset localPosition, double offsetX) {
+    final prepared = _prepared;
+    final width = renderedWidth;
+    if (prepared == null || width == null) return;
+    if (prepared.paths.isEmpty) return;
+
+    final scale = _computeScale(width, prepared);
+    final glyphX = (localPosition.dx - offsetX) / scale;
+
+    for (int i = 0; i < prepared.wordRects.length; i++) {
+      final r = prepared.wordRects[i];
+      if (r.width <= 0) continue;
+      if (glyphX >= r.left && glyphX <= r.right) {
+        dispatchTap(i);
+        return;
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_fontPath == null) {
+    if (fontPath == null) {
       return const SizedBox.shrink();
     }
 
+    final insets =
+        widget.padding?.resolve(Directionality.of(context)) ?? EdgeInsets.zero;
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth;
+        final outerWidth = constraints.maxWidth;
+        final contentWidth = (outerWidth - insets.horizontal).clamp(
+          0.0,
+          double.infinity,
+        );
 
-        if (_prepared == null || _renderedWidth != width) {
+        if (_prepared == null || renderedWidth != contentWidth) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _render(width);
+            if (mounted) _render(contentWidth);
           });
           if (_prepared == null) return const SizedBox.shrink();
         }
@@ -203,40 +262,59 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine> {
         final prepared = _prepared!;
         if (prepared.paths.isEmpty) return const SizedBox.shrink();
 
-        final dpr = MediaQuery.of(context).devicePixelRatio;
+        final scale = _computeScale(contentWidth, prepared);
+        final glyphW = widget.justify ? contentWidth : prepared.width * scale;
+        final glyphH = prepared.height * scale;
 
-        final double scale;
-        final double displayWidth;
-        if (widget.justify) {
-          scale = width / prepared.width;
-          displayWidth = width;
-        } else {
-          final naturalScale = 1 / dpr;
-          final fitScale = width / prepared.width;
-          scale = naturalScale < fitScale ? naturalScale : fitScale;
-          displayWidth = prepared.width * scale;
+        final widgetWidth =
+            widget.justify ? outerWidth : glyphW + insets.horizontal;
+        final widgetHeight = glyphH + insets.vertical;
+
+        final offsetX = insets.left - prepared.minX * scale;
+        final offsetY = insets.top - prepared.minY * scale;
+
+        final highlights = <Rect>[];
+        final indices = widget.highlightedWordIndices;
+        if (indices != null) {
+          for (final i in indices) {
+            if (i < 0 || i >= prepared.wordRects.length) continue;
+            final r = prepared.wordRects[i];
+            if (r.width <= 0) continue;
+            highlights.add(Rect.fromLTWH(
+              offsetX + scale * r.left,
+              0,
+              scale * r.width,
+              widgetHeight,
+            ));
+          }
         }
-        final displayHeight = prepared.height * scale;
 
-        final offsetX = -prepared.minX * scale;
-        final offsetY = -prepared.minY * scale;
-
-        return Align(
-          alignment: Alignment.centerRight,
-          child: RepaintBoundary(
-            child: CustomPaint(
-              size: Size(displayWidth, displayHeight),
-              painter: ArabicOutlinePainter(
-                paths: prepared.paths,
-                color: widget.color,
-                scaleX: scale,
-                scaleY: scale,
-                offsetX: offsetX,
-                offsetY: offsetY,
-              ),
-            ),
+        Widget child = CustomPaint(
+          size: Size(widgetWidth, widgetHeight),
+          painter: ArabicOutlinePainter(
+            paths: prepared.paths,
+            highlights: highlights,
+            color: widget.color,
+            highlightColor: widget.highlightColor,
+            scaleX: scale,
+            scaleY: scale,
+            offsetX: offsetX,
+            offsetY: offsetY,
           ),
         );
+
+        if (widget.onWordTap != null || widget.onMarkerTap != null) {
+          child = GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (details) => _handleTap(details.localPosition, offsetX),
+            child: child,
+          );
+        }
+
+        final boundary = RepaintBoundary(child: child);
+        return widget.alignment == null
+            ? boundary
+            : Align(alignment: widget.alignment!, child: boundary);
       },
     );
   }
