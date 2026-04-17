@@ -138,6 +138,7 @@ class _WidgetPageState extends State<WidgetPage> {
                   words: page3Lines[0].words,
                   justify: page3Lines[0].justify,
                   fontSize: _renderedFontSize,
+                  padding: const EdgeInsets.symmetric(vertical: 2),
                 ),
                 for (int i = 1; i < page3Lines.length; i++)
                   JustifiedArabicLine(

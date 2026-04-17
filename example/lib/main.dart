@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'bitmap_page.dart';
+import 'word_progress_page.dart';
 import 'widget_page.dart';
 
 void main() {
@@ -68,9 +69,8 @@ class _MyAppState extends State<MyApp> {
       home: Scaffold(
         backgroundColor: const Color(0xFFFDF5E6),
         appBar: AppBar(
-          title: Text(_currentPage == 0
-              ? 'Page 3 - Bitmap'
-              : 'Page 3 - Widget'),
+          title: Text(const ['Page 3 - Bitmap', 'Page 3 - Widget', 'Word Progress']
+              [_currentPage]),
           backgroundColor: const Color(0xFF2E7D32),
           foregroundColor: Colors.white,
         ),
@@ -79,6 +79,7 @@ class _MyAppState extends State<MyApp> {
           children: const [
             BitmapPage(),
             WidgetPage(),
+            WordProgressPage(),
           ],
         ),
         bottomNavigationBar: BottomNavigationBar(
@@ -93,6 +94,10 @@ class _MyAppState extends State<MyApp> {
             BottomNavigationBarItem(
               icon: Icon(Icons.widgets),
               label: 'Widget',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.mic),
+              label: 'Progress',
             ),
           ],
         ),

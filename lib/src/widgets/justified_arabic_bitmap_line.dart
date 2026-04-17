@@ -18,6 +18,8 @@ class JustifiedArabicBitmapLine extends StatefulWidget
 
   final Color highlightColor;
 
+  final WordProgress? wordProgress;
+
   /// Substring that identifies a word as a verse marker (e.g. '۝').
   /// When set, taps on a word containing this substring fire [onMarkerTap]
   /// instead of [onWordTap].
@@ -56,6 +58,7 @@ class JustifiedArabicBitmapLine extends StatefulWidget
     this.color = Colors.black,
     this.highlightedWordIndices,
     this.highlightColor = const Color(0x332196F3),
+    this.wordProgress,
     this.verseMarker,
     this.onWordTap,
     this.onMarkerTap,
@@ -176,10 +179,11 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
         final imageLeft = insets.left;
         final imageTop = insets.top;
 
+        final sx = displayWidth / result.bmpWidth;
+
         final highlights = <Rect>[];
         final indices = widget.highlightedWordIndices;
         if (indices != null) {
-          final sx = displayWidth / result.bmpWidth;
           for (final i in indices) {
             if (i < 0 || i >= result.wordRects.length) continue;
             final r = result.wordRects[i];
@@ -193,14 +197,70 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
           }
         }
 
+        final progress = widget.wordProgress;
+        final passedRects = <Rect>[];
+        Rect? activeRect;
+        double activeProgress = 0;
+        Color passedColor = const Color(0x00000000);
+        Color activeColor = const Color(0x00000000);
+
+        if (progress != null) {
+          passedColor = progress.passedColor;
+          activeColor = progress.activeColor;
+          activeProgress = switch (progress.style) {
+            WordProgressStyle.whole =>
+              progress.activeWordIndex != null ? 1.0 : 0.0,
+            WordProgressStyle.sweep => progress.activeProgress.clamp(0.0, 1.0),
+          };
+
+          final passed = progress.passedWordIndices;
+          if (passed != null) {
+            for (final i in passed) {
+              if (i < 0 || i >= result.wordRects.length) continue;
+              final r = result.wordRects[i];
+              if (r.width <= 0) continue;
+              passedRects.add(Rect.fromLTWH(
+                imageLeft + r.x * sx,
+                0,
+                r.width * sx,
+                widgetHeight,
+              ));
+            }
+          }
+
+          final activeIdx = progress.activeWordIndex;
+          if (activeIdx != null &&
+              activeIdx >= 0 &&
+              activeIdx < result.wordRects.length) {
+            final r = result.wordRects[activeIdx];
+            if (r.width > 0) {
+              activeRect = Rect.fromLTWH(
+                imageLeft + r.x * sx,
+                0,
+                r.width * sx,
+                widgetHeight,
+              );
+            }
+          }
+        }
+
+        final hasOverlay = highlights.isNotEmpty ||
+            passedRects.isNotEmpty ||
+            (activeRect != null && activeProgress > 0);
+
         Widget content = Stack(
           children: [
-            if (highlights.isNotEmpty)
+            if (hasOverlay)
               Positioned.fill(
                 child: CustomPaint(
                   painter: _HighlightPainter(
                     rects: highlights,
                     color: widget.highlightColor,
+                    passedRects: passedRects,
+                    passedColor: passedColor,
+                    activeRect: activeRect,
+                    activeProgress: activeProgress,
+                    activeColor: activeColor,
                   ),
                 ),
               ),
@@ -256,24 +316,68 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
 class _HighlightPainter extends CustomPainter {
   final List<Rect> rects;
   final Color color;
+  final List<Rect> passedRects;
+  final Color passedColor;
+  final Rect? activeRect;
+  final double activeProgress;
+  final Color activeColor;
 
-  _HighlightPainter({required this.rects, required this.color});
+  _HighlightPainter({
+    required this.rects,
+    required this.color,
+    this.passedRects = const [],
+    this.passedColor = const Color(0x00000000),
+    this.activeRect,
+    this.activeProgress = 0,
+    this.activeColor = const Color(0x00000000),
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    for (final r in rects) {
-      canvas.drawRect(r, paint);
+    if (rects.isNotEmpty) {
+      final paint = Paint()..color = color;
+      for (final r in rects) {
+        canvas.drawRect(r, paint);
+      }
+    }
+
+    if (passedRects.isNotEmpty) {
+      final paint = Paint()..color = passedColor;
+      for (final r in passedRects) {
+        canvas.drawRect(r, paint);
+      }
+    }
+
+    final ar = activeRect;
+    if (ar != null && activeProgress > 0) {
+      final fillW = ar.width * activeProgress;
+      canvas.drawRect(
+        Rect.fromLTWH(ar.right - fillW, ar.top, fillW, ar.height),
+        Paint()..color = activeColor,
+      );
     }
   }
 
   @override
-  bool shouldRepaint(_HighlightPainter oldDelegate) {
-    if (color != oldDelegate.color) return true;
-    if (rects.length != oldDelegate.rects.length) return true;
-    for (int i = 0; i < rects.length; i++) {
-      if (rects[i] != oldDelegate.rects[i]) return true;
+  bool shouldRepaint(_HighlightPainter old) {
+    if (color != old.color ||
+        passedColor != old.passedColor ||
+        activeColor != old.activeColor ||
+        activeRect != old.activeRect ||
+        activeProgress != old.activeProgress) {
+      return true;
     }
+    if (!_eq(rects, old.rects)) return true;
+    if (!_eq(passedRects, old.passedRects)) return true;
     return false;
+  }
+
+  static bool _eq(List<Rect> a, List<Rect> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 }

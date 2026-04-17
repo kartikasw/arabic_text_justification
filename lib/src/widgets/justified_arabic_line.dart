@@ -23,6 +23,8 @@ class JustifiedArabicLine extends StatefulWidget
   /// Background color for highlighted words.
   final Color highlightColor;
 
+  final WordProgress? wordProgress;
+
   /// Substring that identifies a word as a verse marker (e.g. '۝').
   /// When set, taps on a word containing this substring fire [onMarkerTap]
   /// instead of [onWordTap].
@@ -65,6 +67,7 @@ class JustifiedArabicLine extends StatefulWidget
     this.color = Colors.black,
     this.highlightedWordIndices,
     this.highlightColor = const Color(0x332196F3),
+    this.wordProgress,
     this.verseMarker,
     this.onWordTap,
     this.onMarkerTap,
@@ -289,13 +292,65 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
           }
         }
 
+        final progress = widget.wordProgress;
+        final passedRects = <Rect>[];
+        Rect? activeRect;
+        double activeProgress = 0;
+        Color passedColor = const Color(0x00000000);
+        Color activeColor = const Color(0x00000000);
+
+        if (progress != null) {
+          passedColor = progress.passedColor;
+          activeColor = progress.activeColor;
+          activeProgress = switch (progress.style) {
+            WordProgressStyle.whole =>
+              progress.activeWordIndex != null ? 1.0 : 0.0,
+            WordProgressStyle.sweep => progress.activeProgress.clamp(0.0, 1.0),
+          };
+
+          final passed = progress.passedWordIndices;
+          if (passed != null) {
+            for (final i in passed) {
+              if (i < 0 || i >= prepared.wordRects.length) continue;
+              final r = prepared.wordRects[i];
+              if (r.width <= 0) continue;
+              passedRects.add(Rect.fromLTWH(
+                offsetX + scale * r.left,
+                0,
+                scale * r.width,
+                widgetHeight,
+              ));
+            }
+          }
+
+          final activeIdx = progress.activeWordIndex;
+          if (activeIdx != null &&
+              activeIdx >= 0 &&
+              activeIdx < prepared.wordRects.length) {
+            final r = prepared.wordRects[activeIdx];
+            if (r.width > 0) {
+              activeRect = Rect.fromLTWH(
+                offsetX + scale * r.left,
+                0,
+                scale * r.width,
+                widgetHeight,
+              );
+            }
+          }
+        }
+
         Widget child = CustomPaint(
           size: Size(widgetWidth, widgetHeight),
           painter: ArabicOutlinePainter(
             paths: prepared.paths,
             highlights: highlights,
+            passedRects: passedRects,
+            activeRect: activeRect,
+            activeProgress: activeProgress,
             color: widget.color,
             highlightColor: widget.highlightColor,
+            passedColor: passedColor,
+            activeColor: activeColor,
             scaleX: scale,
             scaleY: scale,
             offsetX: offsetX,
