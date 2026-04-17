@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'bitmap_page.dart';
+import 'hidden_page.dart';
 import 'word_progress_page.dart';
 import 'widget_page.dart';
 
@@ -69,28 +70,30 @@ class _MyAppState extends State<MyApp> {
       home: Scaffold(
         backgroundColor: const Color(0xFFFDF5E6),
         appBar: AppBar(
-          title: Text(const ['Page 3 - Bitmap', 'Page 3 - Widget', 'Word Progress']
-              [_currentPage]),
+          title: Text(const [
+            'Widget',
+            'Word Progress',
+            'Reveal',
+            'Bitmap',
+          ][_currentPage]),
           backgroundColor: const Color(0xFF2E7D32),
           foregroundColor: Colors.white,
         ),
         body: IndexedStack(
           index: _currentPage,
           children: const [
-            BitmapPage(),
             WidgetPage(),
             WordProgressPage(),
+            HiddenPage(),
+            BitmapPage(),
           ],
         ),
         bottomNavigationBar: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
           currentIndex: _currentPage,
           onTap: (i) => setState(() => _currentPage = i),
           selectedItemColor: const Color(0xFF2E7D32),
           items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.image),
-              label: 'Bitmap',
-            ),
             BottomNavigationBarItem(
               icon: Icon(Icons.widgets),
               label: 'Widget',
@@ -98,6 +101,14 @@ class _MyAppState extends State<MyApp> {
             BottomNavigationBarItem(
               icon: Icon(Icons.mic),
               label: 'Progress',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.visibility_off),
+              label: 'Reveal',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.image),
+              label: 'Bitmap',
             ),
           ],
         ),

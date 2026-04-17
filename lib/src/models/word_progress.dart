@@ -9,23 +9,32 @@ enum WordProgressStyle {
 class WordProgress {
   final Set<int>? passedWordIndices;
 
-  final Color passedColor;
+  final Color? passedColor;
+
+  final Color? passedHighlightColor;
 
   final int? activeWordIndex;
 
   final double activeProgress;
 
-  final Color activeColor;
+  final Color? activeColor;
+
+  final Color? activeHighlightColor;
 
   final WordProgressStyle style;
 
+  final Set<int>? hiddenWordIndices;
+
   const WordProgress({
     this.passedWordIndices,
-    this.passedColor = const Color(0x3300BCD4),
+    this.passedColor,
+    this.passedHighlightColor,
     this.activeWordIndex,
     this.activeProgress = 0,
-    this.activeColor = const Color(0x66FF9800),
+    this.activeColor,
+    this.activeHighlightColor,
     this.style = WordProgressStyle.sweep,
+    this.hiddenWordIndices,
   });
 
   bool get isEmpty =>

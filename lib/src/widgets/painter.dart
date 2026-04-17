@@ -1,16 +1,24 @@
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show listEquals, setEquals;
 import 'package:flutter/widgets.dart' show CustomPainter;
 
 class ArabicOutlinePainter extends CustomPainter {
   final List<ui.Path> paths;
+  final List<int> pathWordIndices;
+  final Set<int>? hiddenWordIndices;
   final List<ui.Rect> highlights;
+  final ui.Color highlightColor;
+  final ui.Color color;
+  final Set<int>? passedWordIndices;
   final List<ui.Rect> passedRects;
+  final ui.Color? passedHighlightColor;
+  final ui.Color? passedColor;
+  final int? activeWordIndex;
   final ui.Rect? activeRect;
   final double activeProgress;
-  final ui.Color color;
-  final ui.Color highlightColor;
-  final ui.Color passedColor;
-  final ui.Color activeColor;
+  final ui.Color? activeHighlightColor;
+  final ui.Color? activeColor;
+  final bool activeWhole;
   final double scaleX;
   final double scaleY;
   final double offsetX;
@@ -18,14 +26,21 @@ class ArabicOutlinePainter extends CustomPainter {
 
   ArabicOutlinePainter({
     required this.paths,
+    this.pathWordIndices = const [],
+    this.hiddenWordIndices,
     this.highlights = const [],
+    this.highlightColor = const ui.Color(0x00000000),
+    this.color = const ui.Color(0xFFFFFFFF),
+    this.passedWordIndices,
     this.passedRects = const [],
+    this.passedHighlightColor,
+    this.passedColor,
+    this.activeWordIndex,
     this.activeRect,
     this.activeProgress = 0,
-    this.color = const ui.Color(0xFFFFFFFF),
-    this.highlightColor = const ui.Color(0x00000000),
-    this.passedColor = const ui.Color(0x00000000),
-    this.activeColor = const ui.Color(0x00000000),
+    this.activeHighlightColor,
+    this.activeColor,
+    this.activeWhole = false,
     this.scaleX = 1.0,
     this.scaleY = 1.0,
     this.offsetX = 0.0,
@@ -34,8 +49,7 @@ class ArabicOutlinePainter extends CustomPainter {
 
   @override
   void paint(ui.Canvas canvas, ui.Size size) {
-    // Overlay layers are supplied in canvas (pre-transform) coords so they
-    // can extend past the glyph area (e.g. over vertical padding).
+    // Tap highlights — always drawn when provided, regardless of progress.
     if (highlights.isNotEmpty) {
       final p = ui.Paint()..color = highlightColor;
       for (final r in highlights) {
@@ -43,59 +57,118 @@ class ArabicOutlinePainter extends CustomPainter {
       }
     }
 
-    if (passedRects.isNotEmpty) {
-      final p = ui.Paint()..color = passedColor;
+    // Passed-word background highlight (optional).
+    if (passedHighlightColor != null && passedRects.isNotEmpty) {
+      final p = ui.Paint()..color = passedHighlightColor!;
       for (final r in passedRects) {
         canvas.drawRect(r, p);
       }
     }
 
+    // Active-word background highlight (optional).
     final ar = activeRect;
-    if (ar != null && activeProgress > 0) {
-      final fillW = ar.width * activeProgress;
-      // RTL: fill from the right edge leftward.
-      canvas.drawRect(
-        ui.Rect.fromLTWH(ar.right - fillW, ar.top, fillW, ar.height),
-        ui.Paint()..color = activeColor,
-      );
+    if (activeHighlightColor != null && ar != null) {
+      if (activeWhole) {
+        canvas.drawRect(ar, ui.Paint()..color = activeHighlightColor!);
+      } else if (activeProgress > 0) {
+        final fillW = ar.width * activeProgress;
+        canvas.drawRect(
+          ui.Rect.fromLTWH(ar.right - fillW, ar.top, fillW, ar.height),
+          ui.Paint()..color = activeHighlightColor!,
+        );
+      }
     }
 
+    final paintDefault = ui.Paint()
+      ..color = color
+      ..style = ui.PaintingStyle.fill;
+    final paintPassed = passedColor == null
+        ? paintDefault
+        : (ui.Paint()
+          ..color = passedColor!
+          ..style = ui.PaintingStyle.fill);
+    final paintActiveFull = activeColor == null
+        ? paintDefault
+        : (ui.Paint()
+          ..color = activeColor!
+          ..style = ui.PaintingStyle.fill);
+
+    final hasWordMap = pathWordIndices.length == paths.length;
+    final hidden = hiddenWordIndices;
+    final passed = passedWordIndices;
+
+    // Pass 1: every non-hidden glyph in its base color.
     canvas.save();
     canvas.translate(offsetX, offsetY);
     canvas.scale(scaleX, scaleY);
+    for (int i = 0; i < paths.length; i++) {
+      final wIdx = hasWordMap ? pathWordIndices[i] : -1;
+      if (hidden != null && hidden.contains(wIdx)) continue;
 
-    final paint = ui.Paint()
-      ..color = color
-      ..style = ui.PaintingStyle.fill;
-    for (final path in paths) {
-      canvas.drawPath(path, paint);
+      ui.Paint p;
+      if (passed != null && passed.contains(wIdx) && passedColor != null) {
+        p = paintPassed;
+      } else if (activeWordIndex != null &&
+          wIdx == activeWordIndex &&
+          activeWhole &&
+          activeColor != null) {
+        p = paintActiveFull;
+      } else {
+        p = paintDefault;
+      }
+      canvas.drawPath(paths[i], p);
     }
-
     canvas.restore();
+
+    // Pass 2: sweep-mode glyph overlay — only needed when a glyph tint
+    // is requested (activeColor != null). The background sweep was already
+    // drawn above.
+    if (!activeWhole &&
+        ar != null &&
+        activeProgress > 0 &&
+        activeWordIndex != null &&
+        activeColor != null) {
+      final fillW = ar.width * activeProgress;
+      final clipRect = ui.Rect.fromLTWH(
+        ar.right - fillW,
+        ar.top,
+        fillW,
+        ar.height,
+      );
+      canvas.save();
+      canvas.clipRect(clipRect);
+      canvas.translate(offsetX, offsetY);
+      canvas.scale(scaleX, scaleY);
+      for (int i = 0; i < paths.length; i++) {
+        if (!hasWordMap) break;
+        if (pathWordIndices[i] != activeWordIndex) continue;
+        if (hidden != null && hidden.contains(pathWordIndices[i])) continue;
+        canvas.drawPath(paths[i], paintActiveFull);
+      }
+      canvas.restore();
+    }
   }
 
   @override
-  bool shouldRepaint(ArabicOutlinePainter oldDelegate) =>
-      !identical(paths, oldDelegate.paths) ||
-      !_rectsEqual(highlights, oldDelegate.highlights) ||
-      !_rectsEqual(passedRects, oldDelegate.passedRects) ||
-      activeRect != oldDelegate.activeRect ||
-      activeProgress != oldDelegate.activeProgress ||
-      color != oldDelegate.color ||
-      highlightColor != oldDelegate.highlightColor ||
-      passedColor != oldDelegate.passedColor ||
-      activeColor != oldDelegate.activeColor ||
-      scaleX != oldDelegate.scaleX ||
-      scaleY != oldDelegate.scaleY ||
-      offsetX != oldDelegate.offsetX ||
-      offsetY != oldDelegate.offsetY;
-
-  static bool _rectsEqual(List<ui.Rect> a, List<ui.Rect> b) {
-    if (identical(a, b)) return true;
-    if (a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
+  bool shouldRepaint(ArabicOutlinePainter old) =>
+      !identical(paths, old.paths) ||
+      !identical(pathWordIndices, old.pathWordIndices) ||
+      !setEquals(hiddenWordIndices, old.hiddenWordIndices) ||
+      !setEquals(passedWordIndices, old.passedWordIndices) ||
+      !listEquals(highlights, old.highlights) ||
+      !listEquals(passedRects, old.passedRects) ||
+      highlightColor != old.highlightColor ||
+      color != old.color ||
+      passedColor != old.passedColor ||
+      passedHighlightColor != old.passedHighlightColor ||
+      activeColor != old.activeColor ||
+      activeHighlightColor != old.activeHighlightColor ||
+      activeWordIndex != old.activeWordIndex ||
+      activeRect != old.activeRect ||
+      activeProgress != old.activeProgress ||
+      activeWhole != old.activeWhole ||
+      scaleX != old.scaleX ||
+      scaleY != old.scaleY ||
+      offsetX != old.offsetX ||
+      offsetY != old.offsetY;
 }

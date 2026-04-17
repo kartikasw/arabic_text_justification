@@ -23,6 +23,7 @@ class JustifiedArabicLine extends StatefulWidget
   /// Background color for highlighted words.
   final Color highlightColor;
 
+  @override
   final WordProgress? wordProgress;
 
   /// Substring that identifies a word as a verse marker (e.g. '۝').
@@ -49,8 +50,6 @@ class JustifiedArabicLine extends StatefulWidget
   @override
   final double? fontSize;
 
-  /// Outer padding around the line. Useful for vertical spacing between
-  /// consecutive lines, e.g. `EdgeInsets.symmetric(vertical: 4)`.
   final EdgeInsetsGeometry? padding;
 
   /// Alignment of the line within the available width. When null the widget
@@ -83,6 +82,7 @@ class JustifiedArabicLine extends StatefulWidget
 
 class _PreparedLine {
   final List<ui.Path> paths;
+  final List<int> pathWordIndices;
   final List<Rect> wordRects;
   final double minX;
   final double minY;
@@ -91,6 +91,7 @@ class _PreparedLine {
 
   const _PreparedLine({
     required this.paths,
+    required this.pathWordIndices,
     required this.wordRects,
     required this.minX,
     required this.minY,
@@ -143,6 +144,7 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
     double minX = double.infinity, maxX = double.negativeInfinity;
     double minY = double.infinity, maxY = double.negativeInfinity;
     final paths = <ui.Path>[];
+    final pathWordIndices = <int>[];
 
     for (final glyph in outline.glyphs) {
       final path = ui.Path();
@@ -184,6 +186,7 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
       }
       path.close();
       paths.add(path);
+      pathWordIndices.add(glyph.wordIndex);
     }
 
     final wordRects = [
@@ -194,6 +197,7 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
     if (maxX <= minX || maxY <= minY) {
       return _PreparedLine(
         paths: const [],
+        pathWordIndices: const [],
         wordRects: wordRects,
         minX: 0,
         minY: 0,
@@ -203,6 +207,7 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
     }
     return _PreparedLine(
       paths: paths,
+      pathWordIndices: pathWordIndices,
       wordRects: wordRects,
       minX: minX,
       minY: minY,
@@ -227,8 +232,10 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
 
     final scale = _computeScale(width, prepared);
     final glyphX = (localPosition.dx - offsetX) / scale;
+    final hidden = widget.wordProgress?.hiddenWordIndices;
 
     for (int i = 0; i < prepared.wordRects.length; i++) {
+      if (hidden != null && hidden.contains(i)) continue;
       final r = prepared.wordRects[i];
       if (r.width <= 0) continue;
       if (glyphX >= r.left && glyphX <= r.right) {
@@ -276,11 +283,14 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
         final offsetX = insets.left - prepared.minX * scale;
         final offsetY = insets.top - prepared.minY * scale;
 
+        final hidden = widget.wordProgress?.hiddenWordIndices;
+
         final highlights = <Rect>[];
         final indices = widget.highlightedWordIndices;
         if (indices != null) {
           for (final i in indices) {
             if (i < 0 || i >= prepared.wordRects.length) continue;
+            if (hidden != null && hidden.contains(i)) continue;
             final r = prepared.wordRects[i];
             if (r.width <= 0) continue;
             highlights.add(Rect.fromLTWH(
@@ -296,22 +306,28 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
         final passedRects = <Rect>[];
         Rect? activeRect;
         double activeProgress = 0;
-        Color passedColor = const Color(0x00000000);
-        Color activeColor = const Color(0x00000000);
+        int? activeIdx;
+        bool activeWhole = false;
+        Set<int>? passedIndices;
+        Color? passedColor;
+        Color? passedHighlightColor;
+        Color? activeColor;
+        Color? activeHighlightColor;
 
         if (progress != null) {
           passedColor = progress.passedColor;
+          passedHighlightColor = progress.passedHighlightColor;
           activeColor = progress.activeColor;
-          activeProgress = switch (progress.style) {
-            WordProgressStyle.whole =>
-              progress.activeWordIndex != null ? 1.0 : 0.0,
-            WordProgressStyle.sweep => progress.activeProgress.clamp(0.0, 1.0),
-          };
+          activeHighlightColor = progress.activeHighlightColor;
+          passedIndices = progress.passedWordIndices;
+          final active = activeState;
+          activeWhole = active.whole;
+          activeProgress = active.progress;
 
-          final passed = progress.passedWordIndices;
-          if (passed != null) {
-            for (final i in passed) {
+          if (passedIndices != null && passedHighlightColor != null) {
+            for (final i in passedIndices) {
               if (i < 0 || i >= prepared.wordRects.length) continue;
+              if (hidden != null && hidden.contains(i)) continue;
               final r = prepared.wordRects[i];
               if (r.width <= 0) continue;
               passedRects.add(Rect.fromLTWH(
@@ -323,12 +339,14 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
             }
           }
 
-          final activeIdx = progress.activeWordIndex;
-          if (activeIdx != null &&
-              activeIdx >= 0 &&
-              activeIdx < prepared.wordRects.length) {
-            final r = prepared.wordRects[activeIdx];
+          final ai = progress.activeWordIndex;
+          if (ai != null &&
+              ai >= 0 &&
+              ai < prepared.wordRects.length &&
+              !(hidden?.contains(ai) ?? false)) {
+            final r = prepared.wordRects[ai];
             if (r.width > 0) {
+              activeIdx = ai;
               activeRect = Rect.fromLTWH(
                 offsetX + scale * r.left,
                 0,
@@ -343,14 +361,21 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
           size: Size(widgetWidth, widgetHeight),
           painter: ArabicOutlinePainter(
             paths: prepared.paths,
+            pathWordIndices: prepared.pathWordIndices,
+            hiddenWordIndices: hidden,
             highlights: highlights,
+            highlightColor: widget.highlightColor,
+            color: widget.color,
+            passedWordIndices: passedIndices,
             passedRects: passedRects,
+            passedHighlightColor: passedHighlightColor,
+            passedColor: passedColor,
+            activeWordIndex: activeIdx,
             activeRect: activeRect,
             activeProgress: activeProgress,
-            color: widget.color,
-            highlightColor: widget.highlightColor,
-            passedColor: passedColor,
+            activeHighlightColor: activeHighlightColor,
             activeColor: activeColor,
+            activeWhole: activeWhole,
             scaleX: scale,
             scaleY: scale,
             offsetX: offsetX,

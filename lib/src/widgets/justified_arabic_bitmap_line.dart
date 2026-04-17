@@ -1,3 +1,6 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import '../ffi/native_api.dart';
@@ -18,6 +21,7 @@ class JustifiedArabicBitmapLine extends StatefulWidget
 
   final Color highlightColor;
 
+  @override
   final WordProgress? wordProgress;
 
   /// Substring that identifies a word as a verse marker (e.g. '۝').
@@ -40,8 +44,6 @@ class JustifiedArabicBitmapLine extends StatefulWidget
   @override
   final double? fontSize;
 
-  /// Outer padding around the line. Useful for vertical spacing between
-  /// consecutive lines, e.g. `EdgeInsets.symmetric(vertical: 4)`.
   final EdgeInsetsGeometry? padding;
 
   /// Alignment of the line within the available width. When null the widget
@@ -121,8 +123,10 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
 
     final sx = result.bmpWidth / displayWidth;
     final nativeX = (localPosition.dx - imageLeft) * sx;
+    final hidden = widget.wordProgress?.hiddenWordIndices;
 
     for (int i = 0; i < result.wordRects.length; i++) {
+      if (hidden != null && hidden.contains(i)) continue;
       final r = result.wordRects[i];
       if (r.width <= 0) continue;
       if (nativeX >= r.x && nativeX <= r.x + r.width) {
@@ -181,11 +185,29 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
 
         final sx = displayWidth / result.bmpWidth;
 
+        final hidden = widget.wordProgress?.hiddenWordIndices;
+
+        final hiddenRects = <Rect>[];
+        if (hidden != null && hidden.isNotEmpty) {
+          for (final i in hidden) {
+            if (i < 0 || i >= result.wordRects.length) continue;
+            final r = result.wordRects[i];
+            if (r.width <= 0) continue;
+            hiddenRects.add(Rect.fromLTWH(
+              imageLeft + r.x * sx,
+              imageTop,
+              r.width * sx,
+              displayHeight,
+            ));
+          }
+        }
+
         final highlights = <Rect>[];
         final indices = widget.highlightedWordIndices;
         if (indices != null) {
           for (final i in indices) {
             if (i < 0 || i >= result.wordRects.length) continue;
+            if (hidden != null && hidden.contains(i)) continue;
             final r = result.wordRects[i];
             if (r.width <= 0) continue;
             highlights.add(Rect.fromLTWH(
@@ -201,29 +223,34 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
         final passedRects = <Rect>[];
         Rect? activeRect;
         double activeProgress = 0;
-        Color passedColor = const Color(0x00000000);
-        Color activeColor = const Color(0x00000000);
+        bool activeWhole = false;
+        Color? passedColor;
+        Color? passedHighlightColor;
+        Color? activeColor;
+        Color? activeHighlightColor;
 
         if (progress != null) {
           passedColor = progress.passedColor;
+          passedHighlightColor = progress.passedHighlightColor;
           activeColor = progress.activeColor;
-          activeProgress = switch (progress.style) {
-            WordProgressStyle.whole =>
-              progress.activeWordIndex != null ? 1.0 : 0.0,
-            WordProgressStyle.sweep => progress.activeProgress.clamp(0.0, 1.0),
-          };
+          activeHighlightColor = progress.activeHighlightColor;
+          final active = activeState;
+          activeWhole = active.whole;
+          activeProgress = active.progress;
 
           final passed = progress.passedWordIndices;
-          if (passed != null) {
+          if (passed != null &&
+              (passedHighlightColor != null || passedColor != null)) {
             for (final i in passed) {
               if (i < 0 || i >= result.wordRects.length) continue;
+              if (hidden != null && hidden.contains(i)) continue;
               final r = result.wordRects[i];
               if (r.width <= 0) continue;
               passedRects.add(Rect.fromLTWH(
                 imageLeft + r.x * sx,
-                0,
+                imageTop,
                 r.width * sx,
-                widgetHeight,
+                displayHeight,
               ));
             }
           }
@@ -231,58 +258,44 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
           final activeIdx = progress.activeWordIndex;
           if (activeIdx != null &&
               activeIdx >= 0 &&
-              activeIdx < result.wordRects.length) {
+              activeIdx < result.wordRects.length &&
+              !(hidden?.contains(activeIdx) ?? false)) {
             final r = result.wordRects[activeIdx];
             if (r.width > 0) {
               activeRect = Rect.fromLTWH(
                 imageLeft + r.x * sx,
-                0,
+                imageTop,
                 r.width * sx,
-                widgetHeight,
+                displayHeight,
               );
             }
           }
         }
 
-        final hasOverlay = highlights.isNotEmpty ||
-            passedRects.isNotEmpty ||
-            (activeRect != null && activeProgress > 0);
+        final imageDst = Rect.fromLTWH(
+          imageLeft,
+          imageTop,
+          displayWidth,
+          displayHeight,
+        );
 
-        Widget content = Stack(
-          children: [
-            if (hasOverlay)
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _HighlightPainter(
-                    rects: highlights,
-                    color: widget.highlightColor,
-                    passedRects: passedRects,
-                    passedColor: passedColor,
-                    activeRect: activeRect,
-                    activeProgress: activeProgress,
-                    activeColor: activeColor,
-                  ),
-                ),
-              ),
-            Positioned(
-              left: imageLeft,
-              top: imageTop,
-              width: displayWidth,
-              height: displayHeight,
-              child: ColorFiltered(
-                colorFilter: ColorFilter.mode(
-                  widget.color,
-                  BlendMode.srcIn,
-                ),
-                child: RawImage(
-                  image: result.image,
-                  fit: BoxFit.fill,
-                  width: displayWidth,
-                  height: displayHeight,
-                ),
-              ),
-            ),
-          ],
+        Widget content = CustomPaint(
+          painter: _BitmapWordPainter(
+            image: result.image,
+            imageDst: imageDst,
+            color: widget.color,
+            highlights: highlights,
+            highlightColor: widget.highlightColor,
+            passedRects: passedRects,
+            passedHighlightColor: passedHighlightColor,
+            passedColor: passedColor,
+            activeRect: activeRect,
+            activeProgress: activeProgress,
+            activeWhole: activeWhole,
+            activeHighlightColor: activeHighlightColor,
+            activeColor: activeColor,
+            hiddenRects: hiddenRects,
+          ),
         );
 
         if (widget.onWordTap != null || widget.onMarkerTap != null) {
@@ -313,71 +326,150 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
   }
 }
 
-class _HighlightPainter extends CustomPainter {
-  final List<Rect> rects;
+class _BitmapWordPainter extends CustomPainter {
+  final ui.Image image;
+  final Rect imageDst;
   final Color color;
+
+  final List<Rect> highlights;
+  final Color highlightColor;
+
   final List<Rect> passedRects;
-  final Color passedColor;
+  final Color? passedHighlightColor;
+  final Color? passedColor;
+
   final Rect? activeRect;
   final double activeProgress;
-  final Color activeColor;
+  final bool activeWhole;
+  final Color? activeHighlightColor;
+  final Color? activeColor;
 
-  _HighlightPainter({
-    required this.rects,
+  final List<Rect> hiddenRects;
+
+  _BitmapWordPainter({
+    required this.image,
+    required this.imageDst,
     required this.color,
+    this.highlights = const [],
+    this.highlightColor = const Color(0x00000000),
     this.passedRects = const [],
-    this.passedColor = const Color(0x00000000),
+    this.passedHighlightColor,
+    this.passedColor,
     this.activeRect,
     this.activeProgress = 0,
-    this.activeColor = const Color(0x00000000),
+    this.activeWhole = false,
+    this.activeHighlightColor,
+    this.activeColor,
+    this.hiddenRects = const [],
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (rects.isNotEmpty) {
-      final paint = Paint()..color = color;
-      for (final r in rects) {
-        canvas.drawRect(r, paint);
+    if (highlights.isNotEmpty) {
+      final p = Paint()..color = highlightColor;
+      for (final r in highlights) {
+        canvas.drawRect(r, p);
       }
     }
 
-    if (passedRects.isNotEmpty) {
-      final paint = Paint()..color = passedColor;
+    if (passedHighlightColor != null && passedRects.isNotEmpty) {
+      final p = Paint()..color = passedHighlightColor!;
       for (final r in passedRects) {
-        canvas.drawRect(r, paint);
+        canvas.drawRect(r, p);
       }
     }
 
     final ar = activeRect;
-    if (ar != null && activeProgress > 0) {
-      final fillW = ar.width * activeProgress;
-      canvas.drawRect(
-        Rect.fromLTWH(ar.right - fillW, ar.top, fillW, ar.height),
-        Paint()..color = activeColor,
-      );
+    if (activeHighlightColor != null && ar != null) {
+      if (activeWhole) {
+        canvas.drawRect(ar, Paint()..color = activeHighlightColor!);
+      } else if (activeProgress > 0) {
+        final fillW = ar.width * activeProgress;
+        canvas.drawRect(
+          Rect.fromLTWH(ar.right - fillW, ar.top, fillW, ar.height),
+          Paint()..color = activeHighlightColor!,
+        );
+      }
     }
+
+    canvas.save();
+    if (hiddenRects.isNotEmpty) {
+      final path = Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+      for (final r in hiddenRects) {
+        path.addRect(r);
+      }
+      canvas.clipPath(path);
+    }
+
+    final src = Rect.fromLTWH(
+      0,
+      0,
+      image.width.toDouble(),
+      image.height.toDouble(),
+    );
+
+    canvas.drawImageRect(
+      image,
+      src,
+      imageDst,
+      Paint()..colorFilter = ColorFilter.mode(color, BlendMode.srcIn),
+    );
+
+    if (passedColor != null && passedRects.isNotEmpty) {
+      final clip = Path();
+      for (final r in passedRects) {
+        clip.addRect(r);
+      }
+      canvas.save();
+      canvas.clipPath(clip);
+      canvas.drawImageRect(
+        image,
+        src,
+        imageDst,
+        Paint()..colorFilter = ColorFilter.mode(passedColor!, BlendMode.srcIn),
+      );
+      canvas.restore();
+    }
+
+    if (activeColor != null && ar != null && activeProgress > 0) {
+      final clip = activeWhole
+          ? ar
+          : Rect.fromLTWH(
+              ar.right - ar.width * activeProgress,
+              ar.top,
+              ar.width * activeProgress,
+              ar.height,
+            );
+      canvas.save();
+      canvas.clipRect(clip);
+      canvas.drawImageRect(
+        image,
+        src,
+        imageDst,
+        Paint()..colorFilter = ColorFilter.mode(activeColor!, BlendMode.srcIn),
+      );
+      canvas.restore();
+    }
+
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_HighlightPainter old) {
-    if (color != old.color ||
-        passedColor != old.passedColor ||
-        activeColor != old.activeColor ||
-        activeRect != old.activeRect ||
-        activeProgress != old.activeProgress) {
-      return true;
-    }
-    if (!_eq(rects, old.rects)) return true;
-    if (!_eq(passedRects, old.passedRects)) return true;
-    return false;
-  }
-
-  static bool _eq(List<Rect> a, List<Rect> b) {
-    if (identical(a, b)) return true;
-    if (a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
+  bool shouldRepaint(_BitmapWordPainter old) =>
+      image != old.image ||
+      imageDst != old.imageDst ||
+      color != old.color ||
+      highlightColor != old.highlightColor ||
+      passedHighlightColor != old.passedHighlightColor ||
+      passedColor != old.passedColor ||
+      activeHighlightColor != old.activeHighlightColor ||
+      activeColor != old.activeColor ||
+      activeRect != old.activeRect ||
+      activeProgress != old.activeProgress ||
+      activeWhole != old.activeWhole ||
+      !listEquals(highlights, old.highlights) ||
+      !listEquals(passedRects, old.passedRects) ||
+      !listEquals(hiddenRects, old.hiddenRects);
 }

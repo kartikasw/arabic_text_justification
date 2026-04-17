@@ -2,6 +2,9 @@ import 'package:flutter/widgets.dart';
 
 import '../bundled_fonts.dart';
 import '../ffi/native_api.dart';
+import '../models/models.dart';
+
+typedef ResolvedActiveState = ({double progress, bool whole});
 
 /// Fields the mixin reads off the owning widget. Both [JustifiedArabicLine]
 /// and [JustifiedArabicBitmapLine] implement this.
@@ -19,6 +22,8 @@ abstract interface class JustifiedArabicLineConfig {
   void Function(int index, String word)? get onWordTap;
 
   void Function(int index, String word)? get onMarkerTap;
+
+  WordProgress? get wordProgress;
 }
 
 /// Shared lifecycle and helpers for the line widgets: resolves the font path
@@ -93,6 +98,17 @@ mixin JustifiedLineStateMixin<T extends StatefulWidget> on State<T> {
     } else {
       cfg.onWordTap?.call(wordIndex, word);
     }
+  }
+
+  ResolvedActiveState get activeState {
+    final p = _cfg.wordProgress;
+    if (p == null) return (progress: 0.0, whole: false);
+    final whole = p.style == WordProgressStyle.whole;
+    final progress = switch (p.style) {
+      WordProgressStyle.whole => p.activeWordIndex != null ? 1.0 : 0.0,
+      WordProgressStyle.sweep => p.activeProgress.clamp(0.0, 1.0),
+    };
+    return (progress: progress, whole: whole);
   }
 
   /// Drop the cached render so the next layout pass re-renders.
