@@ -140,12 +140,8 @@ class _BitmapPageState extends State<BitmapPage> {
           child: Column(
             children: List.generate(_lines.length, (lineIdx) {
               final result = _lines[lineIdx];
-              if (result == null) {
-                return const Expanded(child: SizedBox.shrink());
-              }
-              return Expanded(
-                child: _buildInteractiveLine(lineIdx, result),
-              );
+              if (result == null) return const SizedBox.shrink();
+              return _buildInteractiveLine(lineIdx, result, contentWidth);
             }),
           ),
         );
@@ -153,80 +149,64 @@ class _BitmapPageState extends State<BitmapPage> {
     );
   }
 
-  Widget _buildInteractiveLine(int lineIdx, RenderResult result) {
+  Widget _buildInteractiveLine(
+      int lineIdx, RenderResult result, double displayWidth) {
     final alignment = page3Lines[lineIdx].alignment;
+    final scaleX = displayWidth / result.bmpWidth;
+    final scaleY = scaleX;
+    final displayHeight = result.bmpHeight * scaleY;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final displayWidth = constraints.maxWidth;
-        final displayHeight = constraints.maxHeight;
+    final renderedWidth = result.bmpWidth * scaleX;
+    final double offsetX = switch (alignment) {
+      LineAlignment.justify => displayWidth - renderedWidth,
+      LineAlignment.center => (displayWidth - renderedWidth) / 2,
+      LineAlignment.left => 0.0,
+      LineAlignment.right => displayWidth - renderedWidth,
+    };
+    final align = switch (alignment) {
+      LineAlignment.justify => Alignment.centerRight,
+      LineAlignment.center => Alignment.center,
+      LineAlignment.left => Alignment.centerLeft,
+      LineAlignment.right => Alignment.centerRight,
+    };
 
-        // Uniform scale from height; if the line overshoots width after
-        // kashida, shrink horizontally only (Tarteel-style horizontal
-        // compression for extra-wide lines).
-        final scaleY = displayHeight / result.bmpHeight;
-        final uniformWidth = result.bmpWidth * scaleY;
-        final bool overshoots = uniformWidth > displayWidth;
-        final scaleX = overshoots
-            ? displayWidth / result.bmpWidth
-            : scaleY;
-        final renderedWidth = result.bmpWidth * scaleX;
-
-        // BoxFit.fill when overshooting (use the non-uniform scaleX to
-        // compress). BoxFit.contain when fitting.
-        final fit = overshoots ? BoxFit.fill : BoxFit.contain;
-        final align = switch (alignment) {
-          LineAlignment.justify => Alignment.centerRight,
-          LineAlignment.center => Alignment.center,
-          LineAlignment.left => Alignment.centerLeft,
-          LineAlignment.right => Alignment.centerRight,
-        };
-        final double offsetX = switch (alignment) {
-          LineAlignment.justify => displayWidth - renderedWidth,
-          LineAlignment.center => (displayWidth - renderedWidth) / 2,
-          LineAlignment.left => 0.0,
-          LineAlignment.right => displayWidth - renderedWidth,
-        };
-
-        return GestureDetector(
-          onTapUp: (details) {
-            _onTapLine(lineIdx, result, details.localPosition, displayWidth);
-          },
-          child: SizedBox(
-            width: displayWidth,
-            height: displayHeight,
-            child: Stack(
-              children: [
-                if (_selectedAyah != null)
-                  for (final pos in _ayahIndex[_selectedAyah!] ?? <(int, int)>[])
-                    if (pos.$1 == lineIdx && pos.$2 < result.wordRects.length)
-                      Positioned(
-                        left: offsetX + result.wordRects[pos.$2].x * scaleX,
-                        top: result.wordRects[pos.$2].y * scaleY,
-                        width: result.wordRects[pos.$2].width * scaleX,
-                        height: result.wordRects[pos.$2].height * scaleY,
-                        child: ColoredBox(
-                          color: Colors.amber.withValues(alpha: 0.3),
-                        ),
-                      ),
-                ColorFiltered(
-                  colorFilter: const ColorFilter.mode(
-                    Colors.black,
-                    BlendMode.srcIn,
-                  ),
-                  child: RawImage(
-                    image: result.image,
-                    fit: fit,
-                    alignment: align,
-                    width: displayWidth,
-                    height: displayHeight,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
+    return GestureDetector(
+      onTapUp: (details) {
+        _onTapLine(lineIdx, result, details.localPosition, displayWidth);
       },
+      child: SizedBox(
+        width: displayWidth,
+        height: displayHeight,
+        child: Stack(
+          children: [
+            if (_selectedAyah != null)
+              for (final pos in _ayahIndex[_selectedAyah!] ?? <(int, int)>[])
+                if (pos.$1 == lineIdx && pos.$2 < result.wordRects.length)
+                  Positioned(
+                    left: offsetX + result.wordRects[pos.$2].x * scaleX,
+                    top: result.wordRects[pos.$2].y * scaleY,
+                    width: result.wordRects[pos.$2].width * scaleX,
+                    height: result.wordRects[pos.$2].height * scaleY,
+                    child: ColoredBox(
+                      color: Colors.amber.withValues(alpha: 0.3),
+                    ),
+                  ),
+            ColorFiltered(
+              colorFilter: const ColorFilter.mode(
+                Colors.black,
+                BlendMode.srcIn,
+              ),
+              child: RawImage(
+                image: result.image,
+                fit: BoxFit.fitWidth,
+                alignment: align,
+                width: displayWidth,
+                height: displayHeight,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
