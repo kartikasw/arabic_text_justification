@@ -31,14 +31,14 @@ JustifiedArabicLine(
 )
 ```
 
-### Tap a word — or a verse marker
+### Tap a word — or a marker
 
-Pass a `verseMarker` substring. Regular word taps fire `onWordTap(index, word)`; words containing the marker fire `onMarkerTap(index, word)` instead. Both return the tapped word's text + its index.
+Pass a `marker` string. Regular word taps fire `onWordTap(index, word)`; words containing the marker fire `onMarkerTap(index, word)` instead. Both return the tapped word's text + its index.
 
 ```dart
 JustifiedArabicLine(
   words: line.words,
-  verseMarker: '۝',
+  marker: '۝',
   onWordTap: (i, w) => print('word: $w'),
   onMarkerTap: (i, w) => print('verse end: $w'),
 )
@@ -84,12 +84,12 @@ JustifiedArabicLine(
 
 ### Hide words until they're recited
 
-`hiddenWordIndices` omits glyphs, highlights, active fill, and tap hits for the listed words. Combined with `verseMarker`, callers can keep ayah markers visible while hiding the verse body, then progressively reveal words as the reader recites them.
+`hiddenWordIndices` omits glyphs, highlights, active fill, and tap hits for the listed words. Combined with `marker`, callers can keep ayah markers visible while hiding the verse body, then progressively reveal words as the reader recites them.
 
 ```dart
 JustifiedArabicLine(
   words: line.words,
-  verseMarker: '۝',
+  marker: '۝',
   wordProgress: WordProgress(
     hiddenWordIndices: notYetRevealed,
     passedWordIndices: revealed,

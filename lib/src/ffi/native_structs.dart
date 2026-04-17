@@ -68,6 +68,8 @@ final class NativeGlyphOutline extends Struct {
   external double offsetY;
   @Int32()
   external int wordIndex;
+  @Int32()
+  external int cluster;
 }
 
 final class NativeOutlineResult extends Struct {

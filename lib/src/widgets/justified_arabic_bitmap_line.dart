@@ -24,11 +24,11 @@ class JustifiedArabicBitmapLine extends StatefulWidget
   @override
   final WordProgress? wordProgress;
 
-  /// Substring that identifies a word as a verse marker (e.g. '۝').
-  /// When set, taps on a word containing this substring fire [onMarkerTap]
+  /// Text that identifies a word as a marker (e.g. '۝').
+  /// When set, taps on a word containing this text fire [onMarkerTap]
   /// instead of [onWordTap].
   @override
-  final String? verseMarker;
+  final String? marker;
 
   @override
   final void Function(int index, String word)? onWordTap;
@@ -43,6 +43,9 @@ class JustifiedArabicBitmapLine extends StatefulWidget
   /// If null, the size is auto-calculated to fill the available width.
   @override
   final double? fontSize;
+
+  /// When set, ignores [fontSize] and auto-fits the line to this height.
+  final double? height;
 
   final EdgeInsetsGeometry? padding;
 
@@ -61,11 +64,12 @@ class JustifiedArabicBitmapLine extends StatefulWidget
     this.highlightedWordIndices,
     this.highlightColor = const Color(0x332196F3),
     this.wordProgress,
-    this.verseMarker,
+    this.marker,
     this.onWordTap,
     this.onMarkerTap,
     this.fontPath,
     this.fontSize,
+    this.height,
     this.padding,
     this.alignment,
   });
@@ -78,15 +82,25 @@ class JustifiedArabicBitmapLine extends StatefulWidget
 class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
     with JustifiedLineStateMixin<JustifiedArabicBitmapLine> {
   RenderResult? _result;
+  List<Rect>? _wordRects;
 
   @override
   void didUpdateWidget(JustifiedArabicBitmapLine oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.height != oldWidget.height ||
+        widget.padding != oldWidget.padding) {
+      renderedWidth = null;
+      _result = null;
+      _wordRects = null;
+    }
     handleConfigChange(oldWidget);
   }
 
   @override
-  void resetRender() => _result = null;
+  void resetRender() {
+    _result = null;
+    _wordRects = null;
+  }
 
   Future<void> _render(double width) async {
     final fontPath = this.fontPath;
@@ -96,19 +110,46 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
     final nativeWidth = width * dpr;
     final text = widget.words.join(' ');
 
-    final fontSize = resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
-
-    final result = await ArabicTextJustification.renderLine(
-      fontPath,
-      text,
-      fontSize,
-      nativeWidth,
-      justify: widget.justify,
-    );
+    final h = widget.height;
+    RenderResult? result;
+    if (h != null) {
+      final insets = widget.padding?.resolve(Directionality.of(context)) ??
+          EdgeInsets.zero;
+      final nativeHeightBudget = (h - insets.vertical) * dpr;
+      result = await fitToBox<RenderResult>(
+        fontPath: fontPath,
+        text: text,
+        nativeWidth: nativeWidth,
+        nativeHeightBudget: nativeHeightBudget,
+        dpr: dpr,
+        justify: widget.justify,
+        render: (nativeSize) => ArabicTextJustification.renderLine(
+          fontPath,
+          text,
+          nativeSize,
+          nativeWidth,
+          justify: widget.justify,
+        ),
+        measure: (r) => r.bmpWidth > 0
+            ? LineMeasurement(r.bmpWidth.toDouble(), r.bmpHeight.toDouble())
+            : null,
+      );
+    } else {
+      final fontSize = resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
+      result = await ArabicTextJustification.renderLine(
+        fontPath,
+        text,
+        fontSize,
+        nativeWidth,
+        justify: widget.justify,
+      );
+    }
     if (result == null || !mounted) return;
 
+    final ready = result;
     setState(() {
-      _result = result;
+      _result = ready;
+      _wordRects = [for (final w in ready.wordRects) w.toRect()];
       renderedWidth = width;
     });
   }
@@ -184,43 +225,41 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
         final imageTop = insets.top;
 
         final sx = displayWidth / result.bmpWidth;
+        final wordRects = _wordRects!;
 
         final hidden = widget.wordProgress?.hiddenWordIndices;
 
-        final hiddenRects = <Rect>[];
-        if (hidden != null && hidden.isNotEmpty) {
-          for (final i in hidden) {
-            if (i < 0 || i >= result.wordRects.length) continue;
-            final r = result.wordRects[i];
-            if (r.width <= 0) continue;
-            hiddenRects.add(Rect.fromLTWH(
-              imageLeft + r.x * sx,
-              imageTop,
-              r.width * sx,
-              displayHeight,
-            ));
-          }
-        }
+        final imageArea = DisplayTransform(
+          scale: sx,
+          offsetX: imageLeft,
+          top: imageTop,
+          height: displayHeight,
+          excluding: hidden,
+        );
+        final fullHeight = DisplayTransform(
+          scale: sx,
+          offsetX: imageLeft,
+          top: 0,
+          height: widgetHeight,
+          excluding: hidden,
+        );
 
-        final highlights = <Rect>[];
-        final indices = widget.highlightedWordIndices;
-        if (indices != null) {
-          for (final i in indices) {
-            if (i < 0 || i >= result.wordRects.length) continue;
-            if (hidden != null && hidden.contains(i)) continue;
-            final r = result.wordRects[i];
-            if (r.width <= 0) continue;
-            highlights.add(Rect.fromLTWH(
-              imageLeft + r.x * sx,
-              0,
-              r.width * sx,
-              widgetHeight,
-            ));
-          }
-        }
+        final hiddenRects = hidden == null || hidden.isEmpty
+            ? const <Rect>[]
+            : DisplayTransform(
+                scale: sx,
+                offsetX: imageLeft,
+                top: imageTop,
+                height: displayHeight,
+              ).mapAll(hidden, wordRects);
+
+        final highlights = fullHeight.mapAll(
+          widget.highlightedWordIndices ?? const <int>{},
+          wordRects,
+        );
 
         final progress = widget.wordProgress;
-        final passedRects = <Rect>[];
+        var passedRects = const <Rect>[];
         Rect? activeRect;
         double activeProgress = 0;
         bool activeWhole = false;
@@ -241,34 +280,12 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
           final passed = progress.passedWordIndices;
           if (passed != null &&
               (passedHighlightColor != null || passedColor != null)) {
-            for (final i in passed) {
-              if (i < 0 || i >= result.wordRects.length) continue;
-              if (hidden != null && hidden.contains(i)) continue;
-              final r = result.wordRects[i];
-              if (r.width <= 0) continue;
-              passedRects.add(Rect.fromLTWH(
-                imageLeft + r.x * sx,
-                imageTop,
-                r.width * sx,
-                displayHeight,
-              ));
-            }
+            passedRects = imageArea.mapAll(passed, wordRects);
           }
 
           final activeIdx = progress.activeWordIndex;
-          if (activeIdx != null &&
-              activeIdx >= 0 &&
-              activeIdx < result.wordRects.length &&
-              !(hidden?.contains(activeIdx) ?? false)) {
-            final r = result.wordRects[activeIdx];
-            if (r.width > 0) {
-              activeRect = Rect.fromLTWH(
-                imageLeft + r.x * sx,
-                imageTop,
-                r.width * sx,
-                displayHeight,
-              );
-            }
+          if (activeIdx != null) {
+            activeRect = imageArea.mapSingle(activeIdx, wordRects);
           }
         }
 

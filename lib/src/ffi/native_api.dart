@@ -163,6 +163,7 @@ class ArabicTextJustification {
         offsetX: g.offsetX,
         offsetY: g.offsetY,
         wordIndex: g.wordIndex,
+        cluster: g.cluster,
       ));
     }
 
