@@ -1,0 +1,401 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+
+import '../ffi/native_api.dart';
+import '../models/models.dart';
+import 'line_common.dart';
+import 'painter.dart';
+
+class JustifiedArabicLine extends StatefulWidget
+    implements JustifiedArabicLineConfig {
+  @override
+  final List<String> words;
+
+  @override
+  final bool justify;
+
+  final Color color;
+
+  /// Word indices (into [words]) to render with a highlight background.
+  final Set<int>? highlightedWordIndices;
+
+  /// Background color for highlighted words.
+  final Color highlightColor;
+
+  @override
+  final WordProgress? wordProgress;
+
+  /// Substring that identifies a word as a verse marker (e.g. '۝').
+  /// When set, taps on a word containing this substring fire [onMarkerTap]
+  /// instead of [onWordTap].
+  @override
+  final String? verseMarker;
+
+  /// Called when the user taps a word that does not contain [verseMarker].
+  /// Arguments are the tapped word's index into [words] and its text.
+  @override
+  final void Function(int index, String word)? onWordTap;
+
+  /// Called when the user taps a word that contains [verseMarker].
+  /// Arguments are the tapped word's index into [words] and its text.
+  @override
+  final void Function(int index, String word)? onMarkerTap;
+
+  /// If null, the bundled DigitalKhatt font is loaded automatically.
+  @override
+  final String? fontPath;
+
+  /// If null, the size is auto-calculated to fill the available width.
+  @override
+  final double? fontSize;
+
+  final EdgeInsetsGeometry? padding;
+
+  /// Alignment of the line within the available width. When null the widget
+  /// reports its intrinsic size (tight to content for `justify=false`), so
+  /// the caller picks the position via a parent (Row, Column, Align, etc).
+  /// Set this when you want the widget itself to fill the width and place
+  /// the content at the given alignment (e.g. [Alignment.centerRight]).
+  final AlignmentGeometry? alignment;
+
+  const JustifiedArabicLine({
+    super.key,
+    required this.words,
+    this.justify = true,
+    this.color = Colors.black,
+    this.highlightedWordIndices,
+    this.highlightColor = const Color(0x332196F3),
+    this.wordProgress,
+    this.verseMarker,
+    this.onWordTap,
+    this.onMarkerTap,
+    this.fontPath,
+    this.fontSize,
+    this.padding,
+    this.alignment,
+  });
+
+  @override
+  State<JustifiedArabicLine> createState() => _JustifiedArabicLineState();
+}
+
+class _PreparedLine {
+  final List<ui.Path> paths;
+  final List<int> pathWordIndices;
+  final List<Rect> wordRects;
+  final double minX;
+  final double minY;
+  final double width;
+  final double height;
+
+  const _PreparedLine({
+    required this.paths,
+    required this.pathWordIndices,
+    required this.wordRects,
+    required this.minX,
+    required this.minY,
+    required this.width,
+    required this.height,
+  });
+}
+
+class _JustifiedArabicLineState extends State<JustifiedArabicLine>
+    with JustifiedLineStateMixin<JustifiedArabicLine> {
+  _PreparedLine? _prepared;
+
+  @override
+  void didUpdateWidget(JustifiedArabicLine oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    handleConfigChange(oldWidget);
+  }
+
+  @override
+  void resetRender() => _prepared = null;
+
+  void _render(double width) {
+    final fontPath = this.fontPath;
+    if (fontPath == null) return;
+
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final nativeWidth = width * dpr;
+    final text = widget.words.join(' ');
+
+    final fontSize = resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
+
+    final outline = ArabicTextJustification.getOutline(
+      fontPath,
+      text,
+      fontSize,
+      nativeWidth,
+      justify: widget.justify,
+    );
+    if (outline == null) return;
+
+    final prepared = _prepare(outline);
+    setState(() {
+      _prepared = prepared;
+      renderedWidth = width;
+    });
+  }
+
+  static _PreparedLine _prepare(OutlineResult outline) {
+    final ascender = outline.ascender;
+    double minX = double.infinity, maxX = double.negativeInfinity;
+    double minY = double.infinity, maxY = double.negativeInfinity;
+    final paths = <ui.Path>[];
+    final pathWordIndices = <int>[];
+
+    for (final glyph in outline.glyphs) {
+      final path = ui.Path();
+      for (final cmd in glyph.commands) {
+        final x = glyph.offsetX + cmd.x;
+        final y = ascender - (glyph.offsetY + cmd.y);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        switch (cmd.type) {
+          case PathCommandType.moveTo:
+            path.moveTo(x, y);
+          case PathCommandType.lineTo:
+            path.lineTo(x, y);
+          case PathCommandType.quadTo:
+            final cx = glyph.offsetX + cmd.x1;
+            final cy = ascender - (glyph.offsetY + cmd.y1);
+            if (cx < minX) minX = cx;
+            if (cx > maxX) maxX = cx;
+            if (cy < minY) minY = cy;
+            if (cy > maxY) maxY = cy;
+            path.quadraticBezierTo(cx, cy, x, y);
+          case PathCommandType.cubicTo:
+            final cx1 = glyph.offsetX + cmd.x1;
+            final cy1 = ascender - (glyph.offsetY + cmd.y1);
+            final cx2 = glyph.offsetX + cmd.x2;
+            final cy2 = ascender - (glyph.offsetY + cmd.y2);
+            if (cx1 < minX) minX = cx1;
+            if (cx1 > maxX) maxX = cx1;
+            if (cy1 < minY) minY = cy1;
+            if (cy1 > maxY) maxY = cy1;
+            if (cx2 < minX) minX = cx2;
+            if (cx2 > maxX) maxX = cx2;
+            if (cy2 < minY) minY = cy2;
+            if (cy2 > maxY) maxY = cy2;
+            path.cubicTo(cx1, cy1, cx2, cy2, x, y);
+        }
+      }
+      path.close();
+      paths.add(path);
+      pathWordIndices.add(glyph.wordIndex);
+    }
+
+    final wordRects = [
+      for (final w in outline.wordRects)
+        Rect.fromLTWH(w.x, w.y, w.width, w.height),
+    ];
+
+    if (maxX <= minX || maxY <= minY) {
+      return _PreparedLine(
+        paths: const [],
+        pathWordIndices: const [],
+        wordRects: wordRects,
+        minX: 0,
+        minY: 0,
+        width: 0,
+        height: 0,
+      );
+    }
+    return _PreparedLine(
+      paths: paths,
+      pathWordIndices: pathWordIndices,
+      wordRects: wordRects,
+      minX: minX,
+      minY: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    );
+  }
+
+  double _computeScale(double width, _PreparedLine prepared) {
+    if (widget.justify) return width / prepared.width;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final naturalScale = 1 / dpr;
+    final fitScale = width / prepared.width;
+    return naturalScale < fitScale ? naturalScale : fitScale;
+  }
+
+  void _handleTap(Offset localPosition, double offsetX) {
+    final prepared = _prepared;
+    final width = renderedWidth;
+    if (prepared == null || width == null) return;
+    if (prepared.paths.isEmpty) return;
+
+    final scale = _computeScale(width, prepared);
+    final glyphX = (localPosition.dx - offsetX) / scale;
+    final hidden = widget.wordProgress?.hiddenWordIndices;
+
+    for (int i = 0; i < prepared.wordRects.length; i++) {
+      if (hidden != null && hidden.contains(i)) continue;
+      final r = prepared.wordRects[i];
+      if (r.width <= 0) continue;
+      if (glyphX >= r.left && glyphX <= r.right) {
+        dispatchTap(i);
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (fontPath == null) {
+      return const SizedBox.shrink();
+    }
+
+    final insets =
+        widget.padding?.resolve(Directionality.of(context)) ?? EdgeInsets.zero;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final outerWidth = constraints.maxWidth;
+        final contentWidth = (outerWidth - insets.horizontal).clamp(
+          0.0,
+          double.infinity,
+        );
+
+        if (_prepared == null || renderedWidth != contentWidth) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _render(contentWidth);
+          });
+          if (_prepared == null) return const SizedBox.shrink();
+        }
+
+        final prepared = _prepared!;
+        if (prepared.paths.isEmpty) return const SizedBox.shrink();
+
+        final scale = _computeScale(contentWidth, prepared);
+        final glyphW = widget.justify ? contentWidth : prepared.width * scale;
+        final glyphH = prepared.height * scale;
+
+        final widgetWidth =
+            widget.justify ? outerWidth : glyphW + insets.horizontal;
+        final widgetHeight = glyphH + insets.vertical;
+
+        final offsetX = insets.left - prepared.minX * scale;
+        final offsetY = insets.top - prepared.minY * scale;
+
+        final hidden = widget.wordProgress?.hiddenWordIndices;
+
+        final highlights = <Rect>[];
+        final indices = widget.highlightedWordIndices;
+        if (indices != null) {
+          for (final i in indices) {
+            if (i < 0 || i >= prepared.wordRects.length) continue;
+            if (hidden != null && hidden.contains(i)) continue;
+            final r = prepared.wordRects[i];
+            if (r.width <= 0) continue;
+            highlights.add(Rect.fromLTWH(
+              offsetX + scale * r.left,
+              0,
+              scale * r.width,
+              widgetHeight,
+            ));
+          }
+        }
+
+        final progress = widget.wordProgress;
+        final passedRects = <Rect>[];
+        Rect? activeRect;
+        double activeProgress = 0;
+        int? activeIdx;
+        bool activeWhole = false;
+        Set<int>? passedIndices;
+        Color? passedColor;
+        Color? passedHighlightColor;
+        Color? activeColor;
+        Color? activeHighlightColor;
+
+        if (progress != null) {
+          passedColor = progress.passedColor;
+          passedHighlightColor = progress.passedHighlightColor;
+          activeColor = progress.activeColor;
+          activeHighlightColor = progress.activeHighlightColor;
+          passedIndices = progress.passedWordIndices;
+          final active = activeState;
+          activeWhole = active.whole;
+          activeProgress = active.progress;
+
+          if (passedIndices != null && passedHighlightColor != null) {
+            for (final i in passedIndices) {
+              if (i < 0 || i >= prepared.wordRects.length) continue;
+              if (hidden != null && hidden.contains(i)) continue;
+              final r = prepared.wordRects[i];
+              if (r.width <= 0) continue;
+              passedRects.add(Rect.fromLTWH(
+                offsetX + scale * r.left,
+                0,
+                scale * r.width,
+                widgetHeight,
+              ));
+            }
+          }
+
+          final ai = progress.activeWordIndex;
+          if (ai != null &&
+              ai >= 0 &&
+              ai < prepared.wordRects.length &&
+              !(hidden?.contains(ai) ?? false)) {
+            final r = prepared.wordRects[ai];
+            if (r.width > 0) {
+              activeIdx = ai;
+              activeRect = Rect.fromLTWH(
+                offsetX + scale * r.left,
+                0,
+                scale * r.width,
+                widgetHeight,
+              );
+            }
+          }
+        }
+
+        Widget child = CustomPaint(
+          size: Size(widgetWidth, widgetHeight),
+          painter: ArabicOutlinePainter(
+            paths: prepared.paths,
+            pathWordIndices: prepared.pathWordIndices,
+            hiddenWordIndices: hidden,
+            highlights: highlights,
+            highlightColor: widget.highlightColor,
+            color: widget.color,
+            passedWordIndices: passedIndices,
+            passedRects: passedRects,
+            passedHighlightColor: passedHighlightColor,
+            passedColor: passedColor,
+            activeWordIndex: activeIdx,
+            activeRect: activeRect,
+            activeProgress: activeProgress,
+            activeHighlightColor: activeHighlightColor,
+            activeColor: activeColor,
+            activeWhole: activeWhole,
+            scaleX: scale,
+            scaleY: scale,
+            offsetX: offsetX,
+            offsetY: offsetY,
+          ),
+        );
+
+        if (widget.onWordTap != null || widget.onMarkerTap != null) {
+          child = GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (details) => _handleTap(details.localPosition, offsetX),
+            child: child,
+          );
+        }
+
+        final boundary = RepaintBoundary(child: child);
+        return widget.alignment == null
+            ? boundary
+            : Align(alignment: widget.alignment!, child: boundary);
+      },
+    );
+  }
+}

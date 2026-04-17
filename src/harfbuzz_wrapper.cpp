@@ -8,18 +8,10 @@
 #include FT_MULTIPLE_MASTERS_H
 #include <cstring>
 #include <cstdlib>
-#include <cstdio>
 #include <climits>
 #include <vector>
 #include <algorithm>
 #include <cmath>
-
-#if defined(__ANDROID__)
-  #include <android/log.h>
-  #define ATJ_LOG(...) __android_log_print(ANDROID_LOG_INFO, "atj", __VA_ARGS__)
-#else
-  #define ATJ_LOG(...) fprintf(stderr, "[atj] " __VA_ARGS__), fprintf(stderr, "\n")
-#endif
 
 LineResult* shape_line(
         const char* font_path,
@@ -185,10 +177,7 @@ static float compute_line_tatweel(
     if (!bracketed) {
         // Target is outside the representable range. Clamp to nearer end.
         float chosen = (natural >= target_fixed) ? -20.0f : 20.0f;
-        int w = set_and_measure(chosen);
-        ATJ_LOG("kashida: tatweel=%.2f (clamped), width %.1f -> %.1f (target %.1f, gap %.1f)",
-                chosen, natural / 64.0f, w / 64.0f, target_px,
-                (target_fixed - w) / 64.0f);
+        set_and_measure(chosen);
         return chosen;
     }
 
@@ -203,10 +192,7 @@ static float compute_line_tatweel(
     // Overshooting by <1px at 0.1 design-unit resolution is invisible;
     // undershooting leaves a ragged column.
     float chosen = hi;
-    int final_w = set_and_measure(chosen);
-    ATJ_LOG("kashida: tatweel=%.2f, width %.1f -> %.1f (target %.1f, gap %.1f)",
-            chosen, natural / 64.0f, final_w / 64.0f, target_px,
-            (target_fixed - final_w) / 64.0f);
+    set_and_measure(chosen);
     return chosen;
 }
 
@@ -260,8 +246,6 @@ static void widen_spaces(
     for (size_t k = 0; k < space_glyphs.size(); k++) {
         poses[space_glyphs[k]].x_advance += per + (k < (size_t)rem ? 1 : 0);
     }
-    ATJ_LOG("kashida: +%.1f residual spread over %zu spaces",
-            delta / 64.0f, space_glyphs.size());
 }
 
 // Find word indices (byte offsets of space characters in UTF-8 text)
@@ -365,10 +349,8 @@ RenderResult* render_line(
     float metric_height = ascender - descender;
 
     float text_width = total_advance / 64.0f;
-    // Add padding for glyph overhangs (glyphs can extend beyond their advance)
     float padding = font_size * 0.5f;
-    float layout_width = (justify ? available_width : (text_width > 0 ? text_width : available_width));
-    int bmp_width  = (int)ceilf(layout_width + padding);
+    int bmp_width  = (int)ceilf(text_width + padding);
     int bmp_height = (int)(metric_height + 2); // +2 for safety
     int baseline_y = (int)ascender;
 
@@ -596,8 +578,7 @@ OutlineResult* get_outline(
     funcs.cubic_to = outline_cubic_to;
 
     GlyphOutline* glyph_outlines = (GlyphOutline*)malloc(sizeof(GlyphOutline) * glyph_count);
-    float padding = font_size * 0.5f;
-    float cursor_x = padding * 0.5f;
+    float cursor_x = 0.0f;
 
     for (unsigned int i = 0; i < glyph_count; i++) {
         FT_UInt glyph_index = infos[i].codepoint;
@@ -671,9 +652,9 @@ OutlineResult* get_outline(
     result->ascender    = ascender;
     result->descender   = descender;
 
-    result->total_width = justify
-        ? (available_width + padding)
-        : (cursor_x + padding * 0.5f);
+    result->total_width = (justify && cursor_x < available_width)
+        ? available_width
+        : cursor_x;
 
     return result;
 }

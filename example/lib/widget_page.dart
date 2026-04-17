@@ -6,19 +6,18 @@ import 'main.dart';
 
 const _verseMarker = '۝';
 
-class BitmapPage extends StatefulWidget {
-  const BitmapPage({super.key});
+class WidgetPage extends StatefulWidget {
+  const WidgetPage({super.key});
 
   @override
-  State<BitmapPage> createState() => _BitmapPageState();
+  State<WidgetPage> createState() => _WidgetPageState();
 }
 
-class _BitmapPageState extends State<BitmapPage>
-    with AyahSelectionMixin<BitmapPage>, FontSizeMixin<BitmapPage> {
+class _WidgetPageState extends State<WidgetPage>
+    with AyahSelectionMixin<WidgetPage>, FontSizeMixin<WidgetPage> {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         FontSizeHeader(
           fontSize: fontSize,
@@ -31,12 +30,19 @@ class _BitmapPageState extends State<BitmapPage>
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Column(
               children: [
-                for (int i = 0; i < page3Lines.length; i++)
-                  JustifiedArabicBitmapLine(
+                JustifiedArabicLine(
+                  words: page3Lines[0].words,
+                  justify: page3Lines[0].justify,
+                  fontSize: renderedFontSize,
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                ),
+                for (int i = 1; i < page3Lines.length; i++)
+                  JustifiedArabicLine(
                     words: page3Lines[i].words,
                     justify: page3Lines[i].justify,
                     fontSize: renderedFontSize,
                     verseMarker: _verseMarker,
+                    padding: const EdgeInsets.symmetric(vertical: 2),
                     highlightedWordIndices: highlightsFor(i),
                     onWordTap: (idx, w) => onWordTap(i, idx, w),
                     onMarkerTap: (idx, w) => onMarkerTap(i, idx, w),

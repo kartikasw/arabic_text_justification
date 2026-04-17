@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- Add `JustifiedArabicLine` and `JustifiedArabicBitmapLine` widgets
+- Add word / marker tap callbacks with `verseMarker` support
+- Add `highlightedWordIndices` for tap-selection highlights
+- Add `WordProgress` for read-along animation (passed + active words, background + glyph tint)
+- Add `WordProgressStyle.sweep` and `.whole` for active-word animation
+- Add `hiddenWordIndices` for progressive-reveal
+- Fix non-justified line width to natural text extents
+- Narrow public API to the widgets; remove low-level `renderLine` / `getOutline` export
+
 ## 0.1.0
 
 - Add `JustificationFont` enum exposing the bundled `digitalKhatt` font with a `load()` helper that copies the asset to the application support directory and returns its path

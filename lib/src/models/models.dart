@@ -1,5 +1,7 @@
 import 'dart:ui' as ui;
 
+export 'word_progress.dart';
+
 class GlyphInfo {
   final int glyphId;
   final double xOffset;

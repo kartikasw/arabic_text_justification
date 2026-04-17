@@ -1,8 +1,9 @@
-import 'package:arabic_text_justification/arabic_text_justification.dart';
 import 'package:flutter/material.dart';
 
 import 'bitmap_page.dart';
-import 'outline_page.dart';
+import 'hidden_page.dart';
+import 'word_progress_page.dart';
+import 'widget_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -15,18 +16,17 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-enum LineAlignment { justify, center, left, right }
-
 // Page 3 data: each line with its words
 class PageLine {
   final List<String> words;
-  final LineAlignment alignment;
-  PageLine(this.words, {this.alignment = LineAlignment.justify});
+  final bool justify;
+  PageLine(this.words, {this.justify = true});
 
   String get text => words.join(' ');
 }
 
 final List<PageLine> page3Lines = [
+  PageLine(['بِسْمِ', 'ٱللَّهِ', 'ٱلرَّحْمَٰنِ', 'ٱلرَّحِيمِ'], justify: false),
   PageLine(['إِنَّ', 'ٱلَّذِينَ', 'كَفَرُوا۟', 'سَوَآءٌ', 'عَلَيْهِمْ', 'ءَأَنذَرْتَهُمْ', 'أَمْ', 'لَمْ', 'تُنذِرْهُمْ']),
   PageLine(['لَا', 'يُؤْمِنُونَ', '۝٦', 'خَتَمَ', 'ٱللَّهُ', 'عَلَىٰ', 'قُلُوبِهِمْ', 'وَعَلَىٰ', 'سَمْعِهِمْۖ', 'وَعَلَىٰٓ']),
   PageLine(['أَبْصَٰرِهِمْ', 'غِشَٰوَةۖ', 'وَلَهُمْ', 'عَذَابٌ', 'عَظِيم', '۝٧', 'وَمِنَ', 'ٱلنَّاسِ']),
@@ -62,19 +62,7 @@ Map<int, List<(int, int)>> buildAyahIndex(List<PageLine> lines) {
 }
 
 class _MyAppState extends State<MyApp> {
-  String? _fontPath;
   int _currentPage = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadFont();
-  }
-
-  Future<void> _loadFont() async {
-    final path = await JustificationFont.digitalKhatt.load();
-    setState(() => _fontPath = path);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,33 +70,45 @@ class _MyAppState extends State<MyApp> {
       home: Scaffold(
         backgroundColor: const Color(0xFFFDF5E6),
         appBar: AppBar(
-          title: Text(_currentPage == 0
-              ? 'Page 3 - Bitmap'
-              : 'Page 3 - Vector Outline'),
+          title: Text(const [
+            'Widget',
+            'Word Progress',
+            'Reveal',
+            'Bitmap',
+          ][_currentPage]),
           backgroundColor: const Color(0xFF2E7D32),
           foregroundColor: Colors.white,
         ),
-        body: _fontPath == null
-            ? const Center(child: CircularProgressIndicator())
-            : IndexedStack(
-                index: _currentPage,
-                children: [
-                  BitmapPage(fontPath: _fontPath!),
-                  OutlinePage(fontPath: _fontPath!),
-                ],
-              ),
+        body: IndexedStack(
+          index: _currentPage,
+          children: const [
+            WidgetPage(),
+            WordProgressPage(),
+            HiddenPage(),
+            BitmapPage(),
+          ],
+        ),
         bottomNavigationBar: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
           currentIndex: _currentPage,
           onTap: (i) => setState(() => _currentPage = i),
           selectedItemColor: const Color(0xFF2E7D32),
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(Icons.image),
-              label: 'Bitmap',
+              icon: Icon(Icons.widgets),
+              label: 'Widget',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.draw),
-              label: 'Vector Outline',
+              icon: Icon(Icons.mic),
+              label: 'Progress',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.visibility_off),
+              label: 'Reveal',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.image),
+              label: 'Bitmap',
             ),
           ],
         ),

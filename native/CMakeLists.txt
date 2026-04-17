@@ -15,7 +15,11 @@ set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
 add_subdirectory(${FT_ROOT} freetype_build)
 
 set(HB_HAVE_FREETYPE ON CACHE BOOL "" FORCE)
+set(HB_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_SOURCE_DIR}")
 add_subdirectory(${HB_ROOT} harfbuzz_build)
+target_compile_definitions(harfbuzz PRIVATE HB_NO_PRAGMA_GCC_DIAGNOSTIC_ERROR)
+target_compile_definitions(harfbuzz-subset PRIVATE HB_NO_PRAGMA_GCC_DIAGNOSTIC_ERROR)
 
 add_library(arabic_text_justification SHARED
         ../src/harfbuzz_wrapper.cpp
