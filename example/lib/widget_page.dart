@@ -5,14 +5,14 @@ import 'package:arabic_text_justification/arabic_text_justification.dart';
 
 import 'main.dart';
 
-class BitmapPage extends StatefulWidget {
-  const BitmapPage({super.key});
+class WidgetPage extends StatefulWidget {
+  const WidgetPage({super.key});
 
   @override
-  State<BitmapPage> createState() => _BitmapPageState();
+  State<WidgetPage> createState() => _WidgetPageState();
 }
 
-class _BitmapPageState extends State<BitmapPage> {
+class _WidgetPageState extends State<WidgetPage> {
   double _fontSize = 24;
   double _renderedFontSize = 24;
   Timer? _debounce;
@@ -34,7 +34,6 @@ class _BitmapPageState extends State<BitmapPage> {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -58,12 +57,14 @@ class _BitmapPageState extends State<BitmapPage> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 for (final line in page3Lines)
-                  JustifiedArabicBitmapLine(
+                  JustifiedArabicLine(
                     words: line.words,
                     justify: line.justify,
                     fontSize: _renderedFontSize,
+                    color: Colors.pink,
                   ),
               ],
             ),

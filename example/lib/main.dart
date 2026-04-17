@@ -1,8 +1,7 @@
-import 'package:arabic_text_justification/arabic_text_justification.dart';
 import 'package:flutter/material.dart';
 
 import 'bitmap_page.dart';
-import 'outline_page.dart';
+import 'widget_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -15,33 +14,32 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-enum LineAlignment { justify, center, left, right }
-
 // Page 3 data: each line with its words
 class PageLine {
   final List<String> words;
-  final LineAlignment alignment;
-  PageLine(this.words, {this.alignment = LineAlignment.justify});
+  final bool justify;
+  PageLine(this.words, {this.justify = true});
 
   String get text => words.join(' ');
 }
 
 final List<PageLine> page3Lines = [
+  PageLine(['بِسْمِ', 'ٱللَّهِ', 'ٱلرَّحْمَٰنِ', 'ٱلرَّحِيمِ'], justify: false),
   PageLine(['إِنَّ', 'ٱلَّذِينَ', 'كَفَرُوا۟', 'سَوَآءٌ', 'عَلَيْهِمْ', 'ءَأَنذَرْتَهُمْ', 'أَمْ', 'لَمْ', 'تُنذِرْهُمْ']),
-  // PageLine(['لَا', 'يُؤْمِنُونَ', '۝٦', 'خَتَمَ', 'ٱللَّهُ', 'عَلَىٰ', 'قُلُوبِهِمْ', 'وَعَلَىٰ', 'سَمْعِهِمْۖ', 'وَعَلَىٰٓ']),
-  // PageLine(['أَبْصَٰرِهِمْ', 'غِشَٰوَةۖ', 'وَلَهُمْ', 'عَذَابٌ', 'عَظِيم', '۝٧', 'وَمِنَ', 'ٱلنَّاسِ']),
-  // PageLine(['مَن', 'يَقُولُ', 'ءَامَنَّا', 'بِٱللَّهِ', 'وَبِٱلْيَوْمِ', 'ٱلْـَٔاخِرِ', 'وَمَا', 'هُم', 'بِمُؤْمِنِينَ', '۝٨']),
-  // PageLine(['يُخَٰدِعُونَ', 'ٱللَّهَ', 'وَٱلَّذِينَ', 'ءَامَنُوا۟', 'وَمَا', 'يَخْدَعُونَ', 'إِلَّآ', 'أَنفُسَهُمْ']),
-  // PageLine(['وَمَا', 'يَشْعُرُونَ', '۝٩', 'فِي', 'قُلُوبِهِم', 'مَّرَض', 'فَزَادَهُمُ', 'ٱللَّهُ', 'مَرَضاۖ']),
-  // PageLine(['وَلَهُمْ', 'عَذَابٌ', 'أَلِيمُۢ', 'بِمَا', 'كَانُوا۟', 'يَكْذِبُونَ', '۝١٠', 'وَإِذَا', 'قِيلَ', 'لَهُمْ']),
-  // PageLine(['لَا', 'تُفْسِدُوا۟', 'فِي', 'ٱلْأَرْضِ', 'قَالُوٓا۟', 'إِنَّمَا', 'نَحْنُ', 'مُصْلِحُونَ', '۝١١']),
-  // PageLine(['أَلَآ', 'إِنَّهُمْ', 'هُمُ', 'ٱلْمُفْسِدُونَ', 'وَلَٰكِن', 'لَّا', 'يَشْعُرُونَ', '۝١٢', 'وَإِذَا', 'قِيلَ']),
-  // PageLine(['لَهُمْ', 'ءَامِنُوا۟', 'كَمَآ', 'ءَامَنَ', 'ٱلنَّاسُ', 'قَالُوٓا۟', 'أَنُؤْمِنُ', 'كَمَآ', 'ءَامَنَ', 'ٱلسُّفَهَآءُۗ']),
-  // PageLine(['أَلَآ', 'إِنَّهُمْ', 'هُمُ', 'ٱلسُّفَهَآءُ', 'وَلَٰكِن', 'لَّا', 'يَعْلَمُونَ', '۝١٣', 'وَإِذَا', 'لَقُوا۟']),
-  // PageLine(['ٱلَّذِينَ', 'ءَامَنُوا۟', 'قَالُوٓا۟', 'ءَامَنَّا', 'وَإِذَا', 'خَلَوْا۟', 'إِلَىٰ', 'شَيَٰطِينِهِمْ', 'قَالُوٓا۟', 'إِنَّا']),
-  // PageLine(['مَعَكُمْ', 'إِنَّمَا', 'نَحْنُ', 'مُسْتَهْزِءُونَ', '۝١٤', 'ٱللَّهُ', 'يَسْتَهْزِئُ', 'بِهِمْ', 'وَيَمُدُّهُمْ']),
-  // PageLine(['فِي', 'طُغْيَٰنِهِمْ', 'يَعْمَهُونَ', '۝١٥', 'أُو۟لَٰٓئِكَ', 'ٱلَّذِينَ', 'ٱشْتَرَوُا۟', 'ٱلضَّلَٰلَةَ']),
-  // PageLine(['بِٱلْهُدَىٰ', 'فَمَا', 'رَبِحَت', 'تِّجَٰرَتُهُمْ', 'وَمَا', 'كَانُوا۟', 'مُهْتَدِينَ', '۝١٦']),
+  PageLine(['لَا', 'يُؤْمِنُونَ', '۝٦', 'خَتَمَ', 'ٱللَّهُ', 'عَلَىٰ', 'قُلُوبِهِمْ', 'وَعَلَىٰ', 'سَمْعِهِمْۖ', 'وَعَلَىٰٓ']),
+  PageLine(['أَبْصَٰرِهِمْ', 'غِشَٰوَةۖ', 'وَلَهُمْ', 'عَذَابٌ', 'عَظِيم', '۝٧', 'وَمِنَ', 'ٱلنَّاسِ']),
+  PageLine(['مَن', 'يَقُولُ', 'ءَامَنَّا', 'بِٱللَّهِ', 'وَبِٱلْيَوْمِ', 'ٱلْـَٔاخِرِ', 'وَمَا', 'هُم', 'بِمُؤْمِنِينَ', '۝٨']),
+  PageLine(['يُخَٰدِعُونَ', 'ٱللَّهَ', 'وَٱلَّذِينَ', 'ءَامَنُوا۟', 'وَمَا', 'يَخْدَعُونَ', 'إِلَّآ', 'أَنفُسَهُمْ']),
+  PageLine(['وَمَا', 'يَشْعُرُونَ', '۝٩', 'فِي', 'قُلُوبِهِم', 'مَّرَض', 'فَزَادَهُمُ', 'ٱللَّهُ', 'مَرَضاۖ']),
+  PageLine(['وَلَهُمْ', 'عَذَابٌ', 'أَلِيمُۢ', 'بِمَا', 'كَانُوا۟', 'يَكْذِبُونَ', '۝١٠', 'وَإِذَا', 'قِيلَ', 'لَهُمْ']),
+  PageLine(['لَا', 'تُفْسِدُوا۟', 'فِي', 'ٱلْأَرْضِ', 'قَالُوٓا۟', 'إِنَّمَا', 'نَحْنُ', 'مُصْلِحُونَ', '۝١١']),
+  PageLine(['أَلَآ', 'إِنَّهُمْ', 'هُمُ', 'ٱلْمُفْسِدُونَ', 'وَلَٰكِن', 'لَّا', 'يَشْعُرُونَ', '۝١٢', 'وَإِذَا', 'قِيلَ']),
+  PageLine(['لَهُمْ', 'ءَامِنُوا۟', 'كَمَآ', 'ءَامَنَ', 'ٱلنَّاسُ', 'قَالُوٓا۟', 'أَنُؤْمِنُ', 'كَمَآ', 'ءَامَنَ', 'ٱلسُّفَهَآءُۗ']),
+  PageLine(['أَلَآ', 'إِنَّهُمْ', 'هُمُ', 'ٱلسُّفَهَآءُ', 'وَلَٰكِن', 'لَّا', 'يَعْلَمُونَ', '۝١٣', 'وَإِذَا', 'لَقُوا۟']),
+  PageLine(['ٱلَّذِينَ', 'ءَامَنُوا۟', 'قَالُوٓا۟', 'ءَامَنَّا', 'وَإِذَا', 'خَلَوْا۟', 'إِلَىٰ', 'شَيَٰطِينِهِمْ', 'قَالُوٓا۟', 'إِنَّا']),
+  PageLine(['مَعَكُمْ', 'إِنَّمَا', 'نَحْنُ', 'مُسْتَهْزِءُونَ', '۝١٤', 'ٱللَّهُ', 'يَسْتَهْزِئُ', 'بِهِمْ', 'وَيَمُدُّهُمْ']),
+  PageLine(['فِي', 'طُغْيَٰنِهِمْ', 'يَعْمَهُونَ', '۝١٥', 'أُو۟لَٰٓئِكَ', 'ٱلَّذِينَ', 'ٱشْتَرَوُا۟', 'ٱلضَّلَٰلَةَ']),
+  PageLine(['بِٱلْهُدَىٰ', 'فَمَا', 'رَبِحَت', 'تِّجَٰرَتُهُمْ', 'وَمَا', 'كَانُوا۟', 'مُهْتَدِينَ', '۝١٦']),
 ];
 
 Map<int, List<(int, int)>> buildAyahIndex(List<PageLine> lines) {
@@ -62,19 +60,7 @@ Map<int, List<(int, int)>> buildAyahIndex(List<PageLine> lines) {
 }
 
 class _MyAppState extends State<MyApp> {
-  String? _fontPath;
   int _currentPage = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadFont();
-  }
-
-  Future<void> _loadFont() async {
-    final path = await JustificationFont.digitalKhatt.load();
-    setState(() => _fontPath = path);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,19 +70,17 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(
           title: Text(_currentPage == 0
               ? 'Page 3 - Bitmap'
-              : 'Page 3 - Vector Outline'),
+              : 'Page 3 - Widget'),
           backgroundColor: const Color(0xFF2E7D32),
           foregroundColor: Colors.white,
         ),
-        body: _fontPath == null
-            ? const Center(child: CircularProgressIndicator())
-            : IndexedStack(
-                index: _currentPage,
-                children: [
-                  BitmapPage(fontPath: _fontPath!),
-                  OutlinePage(fontPath: _fontPath!),
-                ],
-              ),
+        body: IndexedStack(
+          index: _currentPage,
+          children: const [
+            BitmapPage(),
+            WidgetPage(),
+          ],
+        ),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentPage,
           onTap: (i) => setState(() => _currentPage = i),
@@ -107,8 +91,8 @@ class _MyAppState extends State<MyApp> {
               label: 'Bitmap',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.draw),
-              label: 'Vector Outline',
+              icon: Icon(Icons.widgets),
+              label: 'Widget',
             ),
           ],
         ),
