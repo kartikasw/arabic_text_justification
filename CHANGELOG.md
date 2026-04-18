@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Add `colorSpans` for per-character color tinting inside words
+- Add `height` parameter to auto-fit the line to a given height
+
 ## 0.2.0
 
 - Add `JustifiedArabicLine` and `JustifiedArabicBitmapLine` widgets
