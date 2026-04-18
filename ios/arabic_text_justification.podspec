@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'arabic_text_justification'
-  s.version          = '0.2.0'
+  s.version          = '0.3.0'
   s.summary          = 'A new Flutter FFI plugin project.'
   s.description      = <<-DESC
 A new Flutter FFI plugin project.

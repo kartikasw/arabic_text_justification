@@ -1,9 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Add `colorSpans` for per-character color tinting inside words
+- Add `height` parameter to auto-fit the line to a given height
+
 ## 0.2.0
 
 - Add `JustifiedArabicLine` and `JustifiedArabicBitmapLine` widgets
-- Add word / marker tap callbacks with `verseMarker` support
+- Add word / marker tap callbacks with `marker` support
 - Add `highlightedWordIndices` for tap-selection highlights
 - Add `WordProgress` for read-along animation (passed + active words, background + glyph tint)
 - Add `WordProgressStyle.sweep` and `.whole` for active-word animation

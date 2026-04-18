@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart' show CustomPainter;
 class ArabicOutlinePainter extends CustomPainter {
   final List<ui.Path> paths;
   final List<int> pathWordIndices;
+  final List<ui.Color?>? pathSpanColors;
   final Set<int>? hiddenWordIndices;
   final List<ui.Rect> highlights;
   final ui.Color highlightColor;
@@ -27,6 +28,7 @@ class ArabicOutlinePainter extends CustomPainter {
   ArabicOutlinePainter({
     required this.paths,
     this.pathWordIndices = const [],
+    this.pathSpanColors,
     this.hiddenWordIndices,
     this.highlights = const [],
     this.highlightColor = const ui.Color(0x00000000),
@@ -101,6 +103,9 @@ class ArabicOutlinePainter extends CustomPainter {
     canvas.save();
     canvas.translate(offsetX, offsetY);
     canvas.scale(scaleX, scaleY);
+    final spanColors = pathSpanColors;
+    final hasSpanColors = spanColors != null && spanColors.length == paths.length;
+
     for (int i = 0; i < paths.length; i++) {
       final wIdx = hasWordMap ? pathWordIndices[i] : -1;
       if (hidden != null && hidden.contains(wIdx)) continue;
@@ -113,6 +118,10 @@ class ArabicOutlinePainter extends CustomPainter {
           activeWhole &&
           activeColor != null) {
         p = paintActiveFull;
+      } else if (hasSpanColors && spanColors[i] != null) {
+        p = ui.Paint()
+          ..color = spanColors[i]!
+          ..style = ui.PaintingStyle.fill;
       } else {
         p = paintDefault;
       }
@@ -153,6 +162,7 @@ class ArabicOutlinePainter extends CustomPainter {
   bool shouldRepaint(ArabicOutlinePainter old) =>
       !identical(paths, old.paths) ||
       !identical(pathWordIndices, old.pathWordIndices) ||
+      !listEquals(pathSpanColors, old.pathSpanColors) ||
       !setEquals(hiddenWordIndices, old.hiddenWordIndices) ||
       !setEquals(passedWordIndices, old.passedWordIndices) ||
       !listEquals(highlights, old.highlights) ||

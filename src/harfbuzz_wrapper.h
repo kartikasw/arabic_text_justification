@@ -58,6 +58,7 @@ typedef struct {
     float        offset_x;  // glyph position from shaping
     float        offset_y;
     int          word_index;
+    int          cluster;   // UTF-8 byte offset into input text
 } GlyphOutline;
 
 typedef struct {

@@ -26,18 +26,24 @@ class JustifiedArabicLine extends StatefulWidget
   @override
   final WordProgress? wordProgress;
 
-  /// Substring that identifies a word as a verse marker (e.g. '۝').
-  /// When set, taps on a word containing this substring fire [onMarkerTap]
+  /// Per-character color spans. Each span paints the glyphs that belong
+  /// to a character range inside a word. Takes priority over the widget's
+  /// default [color] but is overridden by [WordProgress] passed/active
+  /// glyph tints when both apply. Useful for tajweed coloring, etc.
+  final List<WordColorSpan>? colorSpans;
+
+  /// Text that identifies a word as a marker (e.g. '۝').
+  /// When set, taps on a word containing this text fire [onMarkerTap]
   /// instead of [onWordTap].
   @override
-  final String? verseMarker;
+  final String? marker;
 
-  /// Called when the user taps a word that does not contain [verseMarker].
+  /// Called when the user taps a word that does not contain [marker].
   /// Arguments are the tapped word's index into [words] and its text.
   @override
   final void Function(int index, String word)? onWordTap;
 
-  /// Called when the user taps a word that contains [verseMarker].
+  /// Called when the user taps a word that contains [marker].
   /// Arguments are the tapped word's index into [words] and its text.
   @override
   final void Function(int index, String word)? onMarkerTap;
@@ -49,6 +55,9 @@ class JustifiedArabicLine extends StatefulWidget
   /// If null, the size is auto-calculated to fill the available width.
   @override
   final double? fontSize;
+
+  /// When set, ignores [fontSize] and auto-fits the line to this height.
+  final double? height;
 
   final EdgeInsetsGeometry? padding;
 
@@ -67,11 +76,13 @@ class JustifiedArabicLine extends StatefulWidget
     this.highlightedWordIndices,
     this.highlightColor = const Color(0x332196F3),
     this.wordProgress,
-    this.verseMarker,
+    this.colorSpans,
+    this.marker,
     this.onWordTap,
     this.onMarkerTap,
     this.fontPath,
     this.fontSize,
+    this.height,
     this.padding,
     this.alignment,
   });
@@ -83,6 +94,7 @@ class JustifiedArabicLine extends StatefulWidget
 class _PreparedLine {
   final List<ui.Path> paths;
   final List<int> pathWordIndices;
+  final List<int> pathByteInWord;
   final List<Rect> wordRects;
   final double minX;
   final double minY;
@@ -92,6 +104,7 @@ class _PreparedLine {
   const _PreparedLine({
     required this.paths,
     required this.pathWordIndices,
+    required this.pathByteInWord,
     required this.wordRects,
     required this.minX,
     required this.minY,
@@ -104,16 +117,35 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
     with JustifiedLineStateMixin<JustifiedArabicLine> {
   _PreparedLine? _prepared;
 
+  _PreparedLine? _spanColorsPrepared;
+  List<WordColorSpan>? _spanColorsInput;
+  List<Color?>? _spanColorsCache;
+
   @override
   void didUpdateWidget(JustifiedArabicLine oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.height != oldWidget.height ||
+        widget.padding != oldWidget.padding) {
+      renderedWidth = null;
+      _prepared = null;
+      _invalidateSpanColors();
+    }
     handleConfigChange(oldWidget);
   }
 
   @override
-  void resetRender() => _prepared = null;
+  void resetRender() {
+    _prepared = null;
+    _invalidateSpanColors();
+  }
 
-  void _render(double width) {
+  void _invalidateSpanColors() {
+    _spanColorsPrepared = null;
+    _spanColorsInput = null;
+    _spanColorsCache = null;
+  }
+
+  Future<void> _render(double width) async {
     final fontPath = this.fontPath;
     if (fontPath == null) return;
 
@@ -121,30 +153,99 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
     final nativeWidth = width * dpr;
     final text = widget.words.join(' ');
 
-    final fontSize = resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
+    final h = widget.height;
+    OutlineResult? outline;
+    if (h != null) {
+      final insets = widget.padding?.resolve(Directionality.of(context)) ??
+          EdgeInsets.zero;
+      final nativeHeightBudget = (h - insets.vertical) * dpr;
+      outline = await fitToBox<OutlineResult>(
+        fontPath: fontPath,
+        text: text,
+        nativeWidth: nativeWidth,
+        nativeHeightBudget: nativeHeightBudget,
+        dpr: dpr,
+        justify: widget.justify,
+        render: (nativeSize) => ArabicTextJustification.getOutline(
+          fontPath,
+          text,
+          nativeSize,
+          nativeWidth,
+          justify: widget.justify,
+        ),
+        measure: _envelope,
+      );
+    } else {
+      final nativeSize = resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
+      outline = ArabicTextJustification.getOutline(
+        fontPath,
+        text,
+        nativeSize,
+        nativeWidth,
+        justify: widget.justify,
+      );
+    }
+    if (outline == null || !mounted) return;
 
-    final outline = ArabicTextJustification.getOutline(
-      fontPath,
-      text,
-      fontSize,
-      nativeWidth,
-      justify: widget.justify,
-    );
-    if (outline == null) return;
-
-    final prepared = _prepare(outline);
+    final prepared = _prepare(outline, widget.words);
     setState(() {
       _prepared = prepared;
       renderedWidth = width;
     });
   }
 
-  static _PreparedLine _prepare(OutlineResult outline) {
+  static LineMeasurement? _envelope(OutlineResult outline) {
+    final ascender = outline.ascender;
+    var minX = double.infinity, maxX = double.negativeInfinity;
+    var minY = double.infinity, maxY = double.negativeInfinity;
+    for (final g in outline.glyphs) {
+      for (final cmd in g.commands) {
+        final x = g.offsetX + cmd.x;
+        final y = ascender - (g.offsetY + cmd.y);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        if (cmd.type == PathCommandType.quadTo ||
+            cmd.type == PathCommandType.cubicTo) {
+          final cx1 = g.offsetX + cmd.x1;
+          final cy1 = ascender - (g.offsetY + cmd.y1);
+          if (cx1 < minX) minX = cx1;
+          if (cx1 > maxX) maxX = cx1;
+          if (cy1 < minY) minY = cy1;
+          if (cy1 > maxY) maxY = cy1;
+        }
+        if (cmd.type == PathCommandType.cubicTo) {
+          final cx2 = g.offsetX + cmd.x2;
+          final cy2 = ascender - (g.offsetY + cmd.y2);
+          if (cx2 < minX) minX = cx2;
+          if (cx2 > maxX) maxX = cx2;
+          if (cy2 < minY) minY = cy2;
+          if (cy2 > maxY) maxY = cy2;
+        }
+      }
+    }
+    final w = maxX > minX ? maxX - minX : 0.0;
+    final h = maxY > minY ? maxY - minY : 0.0;
+    if (w <= 0) return null;
+    return LineMeasurement(w, h);
+  }
+
+  static _PreparedLine _prepare(OutlineResult outline, List<String> words) {
+    final wordByteStart = <int>[];
+    var cursor = 0;
+    for (final w in words) {
+      wordByteStart.add(cursor);
+      cursor += _utf8ByteLen(w, w.length);
+      cursor += 1;
+    }
+
     final ascender = outline.ascender;
     double minX = double.infinity, maxX = double.negativeInfinity;
     double minY = double.infinity, maxY = double.negativeInfinity;
     final paths = <ui.Path>[];
     final pathWordIndices = <int>[];
+    final pathByteInWord = <int>[];
 
     for (final glyph in outline.glyphs) {
       final path = ui.Path();
@@ -187,6 +288,11 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
       path.close();
       paths.add(path);
       pathWordIndices.add(glyph.wordIndex);
+      final wordStart =
+          glyph.wordIndex >= 0 && glyph.wordIndex < wordByteStart.length
+              ? wordByteStart[glyph.wordIndex]
+              : 0;
+      pathByteInWord.add(glyph.cluster - wordStart);
     }
 
     final wordRects = [
@@ -198,6 +304,7 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
       return _PreparedLine(
         paths: const [],
         pathWordIndices: const [],
+        pathByteInWord: const [],
         wordRects: wordRects,
         minX: 0,
         minY: 0,
@@ -208,6 +315,7 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
     return _PreparedLine(
       paths: paths,
       pathWordIndices: pathWordIndices,
+      pathByteInWord: pathByteInWord,
       wordRects: wordRects,
       minX: minX,
       minY: minY,
@@ -243,6 +351,77 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
         return;
       }
     }
+  }
+
+  static int _utf8ByteLen(String word, int charCount) {
+    var bytes = 0;
+    var i = 0;
+    while (i < charCount) {
+      final cu = word.codeUnitAt(i);
+      if (cu < 0x80) {
+        bytes += 1;
+      } else if (cu < 0x800) {
+        bytes += 2;
+      } else if (cu < 0xD800 || cu >= 0xE000) {
+        bytes += 3;
+      } else {
+        bytes += 4;
+        i++;
+      }
+      i++;
+    }
+    return bytes;
+  }
+
+  List<Color?>? _buildSpanColors(_PreparedLine prepared) {
+    final spans = widget.colorSpans;
+    if (identical(prepared, _spanColorsPrepared) &&
+        identical(spans, _spanColorsInput)) {
+      return _spanColorsCache;
+    }
+    _spanColorsPrepared = prepared;
+    _spanColorsInput = spans;
+    _spanColorsCache = _computeSpanColors(prepared, spans);
+    return _spanColorsCache;
+  }
+
+  List<Color?>? _computeSpanColors(
+    _PreparedLine prepared,
+    List<WordColorSpan>? spans,
+  ) {
+    if (spans == null || spans.isEmpty || prepared.paths.isEmpty) return null;
+
+    final byWord = <int, List<({int start, int end, Color color})>>{};
+    for (final s in spans) {
+      if (s.wordIndex < 0 || s.wordIndex >= widget.words.length) continue;
+      final word = widget.words[s.wordIndex];
+      final startClamped = s.start.clamp(0, word.length);
+      final endClamped = s.end.clamp(startClamped, word.length);
+      if (endClamped <= startClamped) continue;
+      final startByte = _utf8ByteLen(word, startClamped);
+      final endByte = _utf8ByteLen(word, endClamped);
+      byWord
+          .putIfAbsent(s.wordIndex, () => [])
+          .add((start: startByte, end: endByte, color: s.color));
+    }
+    if (byWord.isEmpty) return null;
+
+    final out = List<Color?>.filled(prepared.paths.length, null);
+    var any = false;
+    for (var i = 0; i < prepared.paths.length; i++) {
+      final wIdx = prepared.pathWordIndices[i];
+      final bucket = byWord[wIdx];
+      if (bucket == null) continue;
+      final byteInWord = prepared.pathByteInWord[i];
+      for (final s in bucket) {
+        if (byteInWord >= s.start && byteInWord < s.end) {
+          out[i] = s.color;
+          any = true;
+          break;
+        }
+      }
+    }
+    return any ? out : null;
   }
 
   @override
@@ -285,25 +464,21 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
 
         final hidden = widget.wordProgress?.hiddenWordIndices;
 
-        final highlights = <Rect>[];
-        final indices = widget.highlightedWordIndices;
-        if (indices != null) {
-          for (final i in indices) {
-            if (i < 0 || i >= prepared.wordRects.length) continue;
-            if (hidden != null && hidden.contains(i)) continue;
-            final r = prepared.wordRects[i];
-            if (r.width <= 0) continue;
-            highlights.add(Rect.fromLTWH(
-              offsetX + scale * r.left,
-              0,
-              scale * r.width,
-              widgetHeight,
-            ));
-          }
-        }
+        final fullHeight = DisplayTransform(
+          scale: scale,
+          offsetX: offsetX,
+          top: 0,
+          height: widgetHeight,
+          excluding: hidden,
+        );
+
+        final highlights = fullHeight.mapAll(
+          widget.highlightedWordIndices ?? const <int>{},
+          prepared.wordRects,
+        );
 
         final progress = widget.wordProgress;
-        final passedRects = <Rect>[];
+        var passedRects = const <Rect>[];
         Rect? activeRect;
         double activeProgress = 0;
         int? activeIdx;
@@ -325,43 +500,27 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
           activeProgress = active.progress;
 
           if (passedIndices != null && passedHighlightColor != null) {
-            for (final i in passedIndices) {
-              if (i < 0 || i >= prepared.wordRects.length) continue;
-              if (hidden != null && hidden.contains(i)) continue;
-              final r = prepared.wordRects[i];
-              if (r.width <= 0) continue;
-              passedRects.add(Rect.fromLTWH(
-                offsetX + scale * r.left,
-                0,
-                scale * r.width,
-                widgetHeight,
-              ));
-            }
+            passedRects = fullHeight.mapAll(passedIndices, prepared.wordRects);
           }
 
           final ai = progress.activeWordIndex;
-          if (ai != null &&
-              ai >= 0 &&
-              ai < prepared.wordRects.length &&
-              !(hidden?.contains(ai) ?? false)) {
-            final r = prepared.wordRects[ai];
-            if (r.width > 0) {
+          if (ai != null) {
+            final rect = fullHeight.mapSingle(ai, prepared.wordRects);
+            if (rect != null) {
               activeIdx = ai;
-              activeRect = Rect.fromLTWH(
-                offsetX + scale * r.left,
-                0,
-                scale * r.width,
-                widgetHeight,
-              );
+              activeRect = rect;
             }
           }
         }
+
+        final pathColors = _buildSpanColors(prepared);
 
         Widget child = CustomPaint(
           size: Size(widgetWidth, widgetHeight),
           painter: ArabicOutlinePainter(
             paths: prepared.paths,
             pathWordIndices: prepared.pathWordIndices,
+            pathSpanColors: pathColors,
             hiddenWordIndices: hidden,
             highlights: highlights,
             highlightColor: widget.highlightColor,

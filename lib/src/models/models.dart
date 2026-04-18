@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+export 'word_color_span.dart';
 export 'word_progress.dart';
 
 class GlyphInfo {
@@ -78,11 +79,17 @@ class GlyphOutline {
   final double offsetY;
   final int wordIndex;
 
+  /// UTF-8 byte offset into the joined text for the first character of the
+  /// cluster this glyph belongs to. Same value for every glyph of a
+  /// ligature.
+  final int cluster;
+
   GlyphOutline({
     required this.commands,
     required this.offsetX,
     required this.offsetY,
     required this.wordIndex,
+    required this.cluster,
   });
 }
 
