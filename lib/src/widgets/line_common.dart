@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/widgets.dart';
 
@@ -8,13 +6,6 @@ import '../ffi/native_api.dart';
 import '../models/models.dart';
 
 typedef ResolvedActiveState = ({double progress, bool whole});
-
-class LineMeasurement {
-  final double width;
-  final double height;
-
-  const LineMeasurement(this.width, this.height);
-}
 
 class DisplayTransform {
   final double scale;
@@ -82,9 +73,6 @@ mixin JustifiedLineStateMixin<T extends StatefulWidget> on State<T> {
   String? fontPath;
   double? renderedWidth;
 
-  double? _seedNativeSize;
-  String? _seedKey;
-
   JustifiedArabicLineConfig get _cfg => widget as JustifiedArabicLineConfig;
 
   @override
@@ -105,7 +93,6 @@ mixin JustifiedLineStateMixin<T extends StatefulWidget> on State<T> {
     if (cfg.fontPath != oldCfg.fontPath) {
       fontPath = cfg.fontPath;
       renderedWidth = null;
-      _clearSeed();
       resetRender();
       if (fontPath == null) _loadBundledFont();
     }
@@ -113,14 +100,8 @@ mixin JustifiedLineStateMixin<T extends StatefulWidget> on State<T> {
         cfg.justify != oldCfg.justify ||
         cfg.fontSize != oldCfg.fontSize) {
       renderedWidth = null;
-      _clearSeed();
       resetRender();
     }
-  }
-
-  void _clearSeed() {
-    _seedKey = null;
-    _seedNativeSize = null;
   }
 
   /// Resolves the native font size: either the caller's [fontSize] scaled
@@ -139,60 +120,34 @@ mixin JustifiedLineStateMixin<T extends StatefulWidget> on State<T> {
     );
   }
 
-  double seedWidthLimitedNative({
-    required String fontPath,
-    required String text,
+  double? resolveNativeSize({
     required double nativeWidth,
-  }) {
-    final key = '$text|${nativeWidth.toStringAsFixed(2)}';
-    if (_seedKey == key && _seedNativeSize != null) {
-      return _seedNativeSize!;
-    }
-    final size = ArabicTextJustification.fontSizeForWidth(
-      fontPath,
-      text,
-      nativeWidth,
-    );
-    _seedKey = key;
-    _seedNativeSize = size;
-    return size;
-  }
-
-  Future<R?> fitToBox<R>({
-    required String fontPath,
-    required String text,
-    required double nativeWidth,
-    required double nativeHeightBudget,
     required double dpr,
-    required bool justify,
-    required FutureOr<R?> Function(double nativeSize) render,
-    required LineMeasurement? Function(R) measure,
-  }) async {
-    var nativeSize = seedWidthLimitedNative(
-      fontPath: fontPath,
-      text: text,
-      nativeWidth: nativeWidth,
-    );
-    final minNative = 8 * dpr;
-    R? last;
-    for (var pass = 0; pass < 3; pass++) {
-      final r = await render(nativeSize);
-      if (!mounted) return null;
-      last = r;
-      if (r == null) break;
-      final env = measure(r);
-      if (env == null || env.width <= 0) break;
-      final displayHeight =
-          justify ? env.height * nativeWidth / env.width : env.height;
-      if (displayHeight <= nativeHeightBudget) return r;
-      final shrunk = nativeSize * nativeHeightBudget / displayHeight;
-      if (shrunk <= minNative) {
-        return await render(minNative);
-      }
-      if ((shrunk - nativeSize).abs() < 0.5) break;
-      nativeSize = shrunk;
+    required double? height,
+    required EdgeInsets insets,
+  }) {
+    if (height == null) {
+      return resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
     }
-    return last;
+    final nativeHeightBudget = (height - insets.vertical) * dpr;
+    if (nativeHeightBudget <= 0) return null;
+
+    const refSize = 100.0;
+    final refOutline = ArabicTextJustification.getOutline(
+      fontPath!,
+      _cfg.words.join(' '),
+      refSize,
+      nativeWidth,
+      justify: false,
+    );
+    if (refOutline == null) return null;
+    final metricRef = refOutline.ascender - refOutline.descender;
+    if (metricRef <= 0) return null;
+
+    var nativeSize = nativeHeightBudget * refSize / metricRef;
+    final minNative = 8 * dpr;
+    if (nativeSize < minNative) nativeSize = minNative;
+    return nativeSize;
   }
 
   /// Routes a word tap to either [JustifiedArabicLineConfig.onWordTap] or

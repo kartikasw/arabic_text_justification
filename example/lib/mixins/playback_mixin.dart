@@ -1,12 +1,33 @@
+import 'package:arabic_text_justification/arabic_text_justification.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/widgets.dart';
 
 import '../constants/constants.dart';
 import '../main.dart';
 import '../models/playback.dart';
 
-mixin PlaybackMixin<T extends StatefulWidget>
-    on State<T>, SingleTickerProviderStateMixin<T> {
+WordProgress wholeGreyProgress(LineState? s) => WordProgress(
+      passedWordIndices: s?.sung,
+      passedHighlightColor: Colors.grey.withValues(alpha: 0.25),
+      activeWordIndex: s?.active,
+      activeProgress: s?.progress ?? 0,
+      activeHighlightColor: Colors.grey.withValues(alpha: 0.55),
+      style: WordProgressStyle.whole,
+    );
+
+WordProgress revealProgress(LineState? s, {bool showAll = false}) =>
+    WordProgress(
+      hiddenWordIndices: showAll ? null : s?.hidden,
+      passedWordIndices: s?.sung,
+      passedColor: Colors.black,
+      activeWordIndex: s?.active,
+      activeProgress: s?.progress ?? 0,
+      activeColor: Colors.blue,
+      style: WordProgressStyle.whole,
+    );
+
+mixin PlaybackMixin<T extends StatefulWidget> on State<T>
+    implements TickerProvider {
   late final Ticker _ticker = createTicker(_onTick);
   final Stopwatch _clock = Stopwatch();
   final ValueNotifier<Duration> position = ValueNotifier(Duration.zero);
@@ -14,13 +35,16 @@ mixin PlaybackMixin<T extends StatefulWidget>
   bool _isPlaying = false;
 
   @protected
+  List<PageLine> get dataLines;
+
+  @protected
   bool includeWord(int lineIndex, int wordIndex) => true;
 
   late final List<GlobalTiming> timings = () {
     final list = <GlobalTiming>[];
     var cursor = Duration.zero;
-    for (var li = 0; li < page3Lines.length; li++) {
-      for (var wi = 0; wi < page3Lines[li].words.length; wi++) {
+    for (var li = 0; li < dataLines.length; li++) {
+      for (var wi = 0; wi < dataLines[li].words.length; wi++) {
         if (!includeWord(li, wi)) continue;
         list.add(GlobalTiming(li, wi, cursor, cursor + wordDuration));
         cursor += wordDuration;
@@ -33,16 +57,34 @@ mixin PlaybackMixin<T extends StatefulWidget>
 
   bool get isPlaying => _isPlaying;
 
+  Map<int, LineState>? _statesCache;
+  GlobalTiming? _cachedActive;
+
   Map<int, LineState> statesAt(Duration position) {
+    final cachedActive = _cachedActive;
+    final cached = _statesCache;
+    if (cached != null &&
+        cachedActive != null &&
+        position >= cachedActive.start &&
+        position < cachedActive.end) {
+      final span = cachedActive.end - cachedActive.start;
+      cached[cachedActive.lineIndex]!.progress = span > Duration.zero
+          ? (position - cachedActive.start).inMicroseconds / span.inMicroseconds
+          : 1.0;
+      return cached;
+    }
+
     final byLine = <int, LineState>{
-      for (var i = 0; i < page3Lines.length; i++) i: LineState(),
+      for (var i = 0; i < dataLines.length; i++) i: LineState(),
     };
+    GlobalTiming? active;
     for (final t in timings) {
       final s = byLine[t.lineIndex]!;
       if (position >= t.end) {
         s.sung.add(t.wordIndex);
       } else if (s.active == null && position >= t.start) {
         s.active = t.wordIndex;
+        active = t;
         final span = t.end - t.start;
         s.progress = span > Duration.zero
             ? (position - t.start).inMicroseconds / span.inMicroseconds
@@ -51,6 +93,8 @@ mixin PlaybackMixin<T extends StatefulWidget>
         s.hidden.add(t.wordIndex);
       }
     }
+    _statesCache = byLine;
+    _cachedActive = active;
     return byLine;
   }
 

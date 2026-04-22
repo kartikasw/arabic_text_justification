@@ -8,7 +8,6 @@
 #include FT_MULTIPLE_MASTERS_H
 #include <cstring>
 #include <cstdlib>
-#include <climits>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -61,62 +60,6 @@ void free_line_result(LineResult* result) {
     if (result) {
         free(result->glyphs);
         free(result);
-    }
-}
-
-// Decode one UTF-8 codepoint starting at `text + offset`. Returns the
-// codepoint, writes the number of bytes consumed into *out_len. Returns
-// 0 on invalid input.
-static uint32_t utf8_decode(const char* text, int offset, int text_len, int* out_len) {
-    unsigned char c = (unsigned char)text[offset];
-    if (c < 0x80) { *out_len = 1; return c; }
-    if ((c & 0xE0) == 0xC0 && offset + 1 < text_len) {
-        *out_len = 2;
-        return ((uint32_t)(c & 0x1F) << 6) | (text[offset+1] & 0x3F);
-    }
-    if ((c & 0xF0) == 0xE0 && offset + 2 < text_len) {
-        *out_len = 3;
-        return ((uint32_t)(c & 0x0F) << 12)
-             | ((uint32_t)(text[offset+1] & 0x3F) << 6)
-             |  (text[offset+2] & 0x3F);
-    }
-    if ((c & 0xF8) == 0xF0 && offset + 3 < text_len) {
-        *out_len = 4;
-        return ((uint32_t)(c & 0x07) << 18)
-             | ((uint32_t)(text[offset+1] & 0x3F) << 12)
-             | ((uint32_t)(text[offset+2] & 0x3F) << 6)
-             |  (text[offset+3] & 0x3F);
-    }
-    *out_len = 1;
-    return 0;
-}
-
-// Arabic dual-joining letters: connect to both sides, so their tail can
-// carry a kashida stretch.
-static bool is_dual_joining(uint32_t cp) {
-    switch (cp) {
-        case 0x0626: case 0x0628: case 0x062A: case 0x062B:
-        case 0x062C: case 0x062D: case 0x062E:
-        case 0x0633: case 0x0634: case 0x0635: case 0x0636:
-        case 0x0637: case 0x0638: case 0x0639: case 0x063A:
-        case 0x0641: case 0x0642: case 0x0643: case 0x0644:
-        case 0x0645: case 0x0646: case 0x0647: case 0x064A:
-            return true;
-        default: return false;
-    }
-}
-
-// A kashida can only stretch into a letter that joins on its right side,
-// i.e. dual-joining or right-joining Arabic letters.
-static bool is_joining_right(uint32_t cp) {
-    if (is_dual_joining(cp)) return true;
-    switch (cp) {
-        case 0x0622: case 0x0623: case 0x0624: case 0x0625:
-        case 0x0627: case 0x0629: case 0x062F: case 0x0630:
-        case 0x0631: case 0x0632: case 0x0648: case 0x0649:
-        case 0x0671:
-            return true;
-        default: return false;
     }
 }
 
@@ -196,58 +139,6 @@ static float compute_line_tatweel(
     return chosen;
 }
 
-// The DigitalKhatt fork's GSUB lookups (AlternateSetWithTatweels) populate
-// info[i].lefttatweel/righttatweel as a side effect of substituting to a
-// wider glyph. HarfBuzz uses those values to compute advance widths, but
-// FreeType needs the same values applied to the font's variable axes
-// (LTAT, RTAT) before FT_Load_Glyph, or else it draws the glyph's default
-// outline at the wider advance — looking like padding instead of kashida.
-// `norm` inputs are normalized F2DOT14-ish values (roughly [-1,+1]) as
-// stored in the glyph info; we scale to LTAT/RTAT design units (axis
-// range ±20) then to FT_Fixed 16.16.
-static void set_ft_tatweel(FT_Face face, double l_norm, double r_norm) {
-    FT_Fixed coords[2];
-    coords[0] = (FT_Fixed)(l_norm * 20.0 * 65536.0);
-    coords[1] = (FT_Fixed)(r_norm * 20.0 * 65536.0);
-    FT_Set_Var_Design_Coordinates(face, 2, coords);
-}
-
-// Residual gap absorber: after shaping with kashida features, if the total
-// line width is still less than target, widen inter-word space advances
-// equally across all space glyphs to close the gap.
-static void widen_spaces(
-    hb_buffer_t* buf,
-    const char*  text,
-    float        target_px)
-{
-    unsigned int count;
-    hb_glyph_info_t*     infos = hb_buffer_get_glyph_infos(buf, &count);
-    hb_glyph_position_t* poses = hb_buffer_get_glyph_positions(buf, &count);
-
-    int current = 0;
-    for (unsigned int i = 0; i < count; i++) current += poses[i].x_advance;
-    int target_fixed = (int)(target_px * 64.0f);
-    int delta = target_fixed - current;
-    if (delta <= 0) return;
-
-    std::vector<unsigned int> space_glyphs;
-    int text_len = (int)strlen(text);
-    unsigned int last_cluster = UINT_MAX;
-    for (unsigned int i = 0; i < count; i++) {
-        unsigned int c = infos[i].cluster;
-        if (c == last_cluster) continue;
-        if ((int)c < text_len && text[c] == ' ') space_glyphs.push_back(i);
-        last_cluster = c;
-    }
-    if (space_glyphs.empty()) return;
-
-    int per = delta / (int)space_glyphs.size();
-    int rem = delta - per * (int)space_glyphs.size();
-    for (size_t k = 0; k < space_glyphs.size(); k++) {
-        poses[space_glyphs[k]].x_advance += per + (k < (size_t)rem ? 1 : 0);
-    }
-}
-
 // Find word indices (byte offsets of space characters in UTF-8 text)
 static std::vector<int> find_word_boundaries(const char* text) {
     std::vector<int> boundaries;
@@ -287,6 +178,14 @@ RenderResult* render_line(
     }
 
     FT_Set_Char_Size(ft_face, 0, (FT_F26Dot6)(font_size * 64), 72, 72);
+
+    // Read metrics before any variable-axis mutation. If the font has MVAR
+    // entries keyed to LTAT/RTAT, post-mutation ascender/descender could
+    // differ between lines with different kashida stretch, breaking uniform
+    // row height in multi-line layouts.
+    float ascender  = ft_face->size->metrics.ascender / 64.0f;
+    float descender = ft_face->size->metrics.descender / 64.0f; // negative
+    float metric_height = ascender - descender;
 
     // Create a native-OT HarfBuzz font.
     hb_blob_t* blob = hb_blob_create_from_file(font_path);
@@ -343,10 +242,6 @@ RenderResult* render_line(
     for (unsigned int i = 0; i < glyph_count; i++) {
         total_advance += poses[i].x_advance;
     }
-
-    float ascender  = ft_face->size->metrics.ascender / 64.0f;
-    float descender = ft_face->size->metrics.descender / 64.0f; // negative
-    float metric_height = ascender - descender;
 
     float text_width = total_advance / 64.0f;
     float padding = font_size * 0.5f;
@@ -525,6 +420,13 @@ OutlineResult* get_outline(
 
     FT_Set_Char_Size(ft_face, 0, (FT_F26Dot6)(font_size * 64), 72, 72);
 
+    // Read metrics before any variable-axis mutation — same reason as in
+    // render_line: keep ascender/descender identical across lines regardless
+    // of per-line LTAT/RTAT values.
+    float ascender  = ft_face->size->metrics.ascender / 64.0f;
+    float descender = ft_face->size->metrics.descender / 64.0f;
+    float metric_height = ascender - descender;
+
     hb_blob_t* blob = hb_blob_create_from_file(font_path);
     hb_face_t* face = hb_face_create(blob, 0);
     hb_font_t* hb_font = hb_font_create(face);
@@ -565,10 +467,6 @@ OutlineResult* get_outline(
         float x_max = -1e9f;
     };
     std::vector<WordBounds> word_bounds(word_count);
-
-    float ascender  = ft_face->size->metrics.ascender / 64.0f;
-    float descender = ft_face->size->metrics.descender / 64.0f;
-    float metric_height = ascender - descender;
 
     // Decompose outlines
     FT_Outline_Funcs funcs = {};

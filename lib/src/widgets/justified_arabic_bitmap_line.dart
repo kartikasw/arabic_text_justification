@@ -84,6 +84,9 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
   RenderResult? _result;
   List<Rect>? _wordRects;
 
+  int _renderTicket = 0;
+  double? _renderingWidth;
+
   @override
   void didUpdateWidget(JustifiedArabicBitmapLine oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -92,6 +95,7 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
       renderedWidth = null;
       _result = null;
       _wordRects = null;
+      _renderingWidth = null;
     }
     handleConfigChange(oldWidget);
   }
@@ -100,56 +104,39 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
   void resetRender() {
     _result = null;
     _wordRects = null;
+    _renderingWidth = null;
   }
 
   Future<void> _render(double width) async {
     final fontPath = this.fontPath;
     if (fontPath == null) return;
+    final ticket = ++_renderTicket;
 
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final nativeWidth = width * dpr;
-    final text = widget.words.join(' ');
+    final insets =
+        widget.padding?.resolve(Directionality.of(context)) ?? EdgeInsets.zero;
 
-    final h = widget.height;
-    RenderResult? result;
-    if (h != null) {
-      final insets = widget.padding?.resolve(Directionality.of(context)) ??
-          EdgeInsets.zero;
-      final nativeHeightBudget = (h - insets.vertical) * dpr;
-      result = await fitToBox<RenderResult>(
-        fontPath: fontPath,
-        text: text,
-        nativeWidth: nativeWidth,
-        nativeHeightBudget: nativeHeightBudget,
-        dpr: dpr,
-        justify: widget.justify,
-        render: (nativeSize) => ArabicTextJustification.renderLine(
-          fontPath,
-          text,
-          nativeSize,
-          nativeWidth,
-          justify: widget.justify,
-        ),
-        measure: (r) => r.bmpWidth > 0
-            ? LineMeasurement(r.bmpWidth.toDouble(), r.bmpHeight.toDouble())
-            : null,
-      );
-    } else {
-      final fontSize = resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
-      result = await ArabicTextJustification.renderLine(
-        fontPath,
-        text,
-        fontSize,
-        nativeWidth,
-        justify: widget.justify,
-      );
-    }
-    if (result == null || !mounted) return;
+    final nativeSize = resolveNativeSize(
+      nativeWidth: nativeWidth,
+      dpr: dpr,
+      height: widget.height,
+      insets: insets,
+    );
+    if (nativeSize == null) return;
 
-    final ready = result;
+    final result = await ArabicTextJustification.renderLine(
+      fontPath,
+      widget.words.join(' '),
+      nativeSize,
+      nativeWidth,
+      justify: widget.justify,
+    );
+    if (result == null || !mounted || ticket != _renderTicket) return;
+
     setState(() {
-      _result = ready;
-      _wordRects = [for (final w in ready.wordRects) w.toRect()];
+      _result = result;
+      _wordRects = [for (final w in result.wordRects) w.toRect()];
       renderedWidth = width;
     });
   }
@@ -195,9 +182,12 @@ class _JustifiedArabicBitmapLineState extends State<JustifiedArabicBitmapLine>
         );
 
         if (_result == null || renderedWidth != contentWidth) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _render(contentWidth);
-          });
+          if (_renderingWidth != contentWidth) {
+            _renderingWidth = contentWidth;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _render(contentWidth);
+            });
+          }
           if (_result == null) return const SizedBox.shrink();
         }
 

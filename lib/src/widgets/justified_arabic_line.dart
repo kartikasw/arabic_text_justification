@@ -145,90 +145,32 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
     _spanColorsCache = null;
   }
 
-  Future<void> _render(double width) async {
+  _PreparedLine? _renderSync(double width) {
     final fontPath = this.fontPath;
-    if (fontPath == null) return;
+    if (fontPath == null) return null;
 
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final nativeWidth = width * dpr;
-    final text = widget.words.join(' ');
+    final insets =
+        widget.padding?.resolve(Directionality.of(context)) ?? EdgeInsets.zero;
 
-    final h = widget.height;
-    OutlineResult? outline;
-    if (h != null) {
-      final insets = widget.padding?.resolve(Directionality.of(context)) ??
-          EdgeInsets.zero;
-      final nativeHeightBudget = (h - insets.vertical) * dpr;
-      outline = await fitToBox<OutlineResult>(
-        fontPath: fontPath,
-        text: text,
-        nativeWidth: nativeWidth,
-        nativeHeightBudget: nativeHeightBudget,
-        dpr: dpr,
-        justify: widget.justify,
-        render: (nativeSize) => ArabicTextJustification.getOutline(
-          fontPath,
-          text,
-          nativeSize,
-          nativeWidth,
-          justify: widget.justify,
-        ),
-        measure: _envelope,
-      );
-    } else {
-      final nativeSize = resolveFontSize(nativeWidth: nativeWidth, dpr: dpr);
-      outline = ArabicTextJustification.getOutline(
-        fontPath,
-        text,
-        nativeSize,
-        nativeWidth,
-        justify: widget.justify,
-      );
-    }
-    if (outline == null || !mounted) return;
+    final nativeSize = resolveNativeSize(
+      nativeWidth: nativeWidth,
+      dpr: dpr,
+      height: widget.height,
+      insets: insets,
+    );
+    if (nativeSize == null) return null;
 
-    final prepared = _prepare(outline, widget.words);
-    setState(() {
-      _prepared = prepared;
-      renderedWidth = width;
-    });
-  }
-
-  static LineMeasurement? _envelope(OutlineResult outline) {
-    final ascender = outline.ascender;
-    var minX = double.infinity, maxX = double.negativeInfinity;
-    var minY = double.infinity, maxY = double.negativeInfinity;
-    for (final g in outline.glyphs) {
-      for (final cmd in g.commands) {
-        final x = g.offsetX + cmd.x;
-        final y = ascender - (g.offsetY + cmd.y);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        if (cmd.type == PathCommandType.quadTo ||
-            cmd.type == PathCommandType.cubicTo) {
-          final cx1 = g.offsetX + cmd.x1;
-          final cy1 = ascender - (g.offsetY + cmd.y1);
-          if (cx1 < minX) minX = cx1;
-          if (cx1 > maxX) maxX = cx1;
-          if (cy1 < minY) minY = cy1;
-          if (cy1 > maxY) maxY = cy1;
-        }
-        if (cmd.type == PathCommandType.cubicTo) {
-          final cx2 = g.offsetX + cmd.x2;
-          final cy2 = ascender - (g.offsetY + cmd.y2);
-          if (cx2 < minX) minX = cx2;
-          if (cx2 > maxX) maxX = cx2;
-          if (cy2 < minY) minY = cy2;
-          if (cy2 > maxY) maxY = cy2;
-        }
-      }
-    }
-    final w = maxX > minX ? maxX - minX : 0.0;
-    final h = maxY > minY ? maxY - minY : 0.0;
-    if (w <= 0) return null;
-    return LineMeasurement(w, h);
+    final outline = ArabicTextJustification.getOutline(
+      fontPath,
+      widget.words.join(' '),
+      nativeSize,
+      nativeWidth,
+      justify: widget.justify,
+    );
+    if (outline == null) return null;
+    return _prepare(outline, widget.words);
   }
 
   static _PreparedLine _prepare(OutlineResult outline, List<String> words) {
@@ -242,7 +184,6 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
 
     final ascender = outline.ascender;
     double minX = double.infinity, maxX = double.negativeInfinity;
-    double minY = double.infinity, maxY = double.negativeInfinity;
     final paths = <ui.Path>[];
     final pathWordIndices = <int>[];
     final pathByteInWord = <int>[];
@@ -254,8 +195,6 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
         final y = ascender - (glyph.offsetY + cmd.y);
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
         switch (cmd.type) {
           case PathCommandType.moveTo:
             path.moveTo(x, y);
@@ -266,8 +205,6 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
             final cy = ascender - (glyph.offsetY + cmd.y1);
             if (cx < minX) minX = cx;
             if (cx > maxX) maxX = cx;
-            if (cy < minY) minY = cy;
-            if (cy > maxY) maxY = cy;
             path.quadraticBezierTo(cx, cy, x, y);
           case PathCommandType.cubicTo:
             final cx1 = glyph.offsetX + cmd.x1;
@@ -276,12 +213,8 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
             final cy2 = ascender - (glyph.offsetY + cmd.y2);
             if (cx1 < minX) minX = cx1;
             if (cx1 > maxX) maxX = cx1;
-            if (cy1 < minY) minY = cy1;
-            if (cy1 > maxY) maxY = cy1;
             if (cx2 < minX) minX = cx2;
             if (cx2 > maxX) maxX = cx2;
-            if (cy2 < minY) minY = cy2;
-            if (cy2 > maxY) maxY = cy2;
             path.cubicTo(cx1, cy1, cx2, cy2, x, y);
         }
       }
@@ -300,7 +233,17 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
         Rect.fromLTWH(w.x, w.y, w.width, w.height),
     ];
 
-    if (maxX <= minX || maxY <= minY) {
+    // Use font metric height (ascender − descender) for the reported line
+    // height, not the tight glyph-bounding box. Glyph bounds vary per line
+    // based on which characters are present (tall أ vs short م, stacked
+    // diacritics, etc.), which would produce non-uniform line heights
+    // across a block and different page heights between pages with
+    // different content. Metric height is constant for a given fontSize,
+    // so every line — and every page — matches. Horizontal bounds still
+    // come from glyph extents so non-justified lines hug their content.
+    final metricHeight = outline.ascender - outline.descender;
+
+    if (maxX <= minX || metricHeight <= 0) {
       return _PreparedLine(
         paths: const [],
         pathWordIndices: const [],
@@ -318,9 +261,12 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
       pathByteInWord: pathByteInWord,
       wordRects: wordRects,
       minX: minX,
-      minY: minY,
+      // Paths are already y=0 at the top of the ascender (from the
+      // `ascender - (offsetY + cmd.y)` flip above), so minY is 0 — no
+      // vertical shift needed during paint.
+      minY: 0,
       width: maxX - minX,
-      height: maxY - minY,
+      height: metricHeight,
     );
   }
 
@@ -442,30 +388,44 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
         );
 
         if (_prepared == null || renderedWidth != contentWidth) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _render(contentWidth);
-          });
-          if (_prepared == null) return const SizedBox.shrink();
+          final prepared = _renderSync(contentWidth);
+          if (prepared == null) return const SizedBox.shrink();
+          _prepared = prepared;
+          renderedWidth = contentWidth;
         }
 
         final prepared = _prepared!;
         if (prepared.paths.isEmpty) return const SizedBox.shrink();
 
-        final scale = _computeScale(contentWidth, prepared);
-        final glyphW = widget.justify ? contentWidth : prepared.width * scale;
-        final glyphH = prepared.height * scale;
+        // Decouple X and Y scaling. scaleY is always native→display
+        // (1/dpr) so every line at the same fontSize reports the same
+        // widgetHeight regardless of content; kashida-style horizontal
+        // stretch only affects scaleX. Previously a single `scale` was
+        // derived from contentWidth / prepared.width and applied to both
+        // axes, so any per-line drift in prepared.width (kashida not
+        // hitting target width exactly) bled into vertical size and
+        // produced uneven row heights across lines and pages.
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final scaleX = _computeScale(contentWidth, prepared);
+        final scaleY = 1 / dpr;
+
+        final glyphW = widget.justify ? contentWidth : prepared.width * scaleX;
+        final glyphH = prepared.height * scaleY;
 
         final widgetWidth =
             widget.justify ? outerWidth : glyphW + insets.horizontal;
         final widgetHeight = glyphH + insets.vertical;
 
-        final offsetX = insets.left - prepared.minX * scale;
-        final offsetY = insets.top - prepared.minY * scale;
+        final offsetX = insets.left - prepared.minX * scaleX;
+        final offsetY = insets.top - prepared.minY * scaleY;
 
         final hidden = widget.wordProgress?.hiddenWordIndices;
 
+        // Word-rect mapping uses scaleX because word rects are horizontal
+        // regions on the line and they kashida-stretch with the glyphs.
+        // The top/height describe the full widget vertical span.
         final fullHeight = DisplayTransform(
-          scale: scale,
+          scale: scaleX,
           offsetX: offsetX,
           top: 0,
           height: widgetHeight,
@@ -535,8 +495,8 @@ class _JustifiedArabicLineState extends State<JustifiedArabicLine>
             activeHighlightColor: activeHighlightColor,
             activeColor: activeColor,
             activeWhole: activeWhole,
-            scaleX: scale,
-            scaleY: scale,
+            scaleX: scaleX,
+            scaleY: scaleY,
             offsetX: offsetX,
             offsetY: offsetY,
           ),

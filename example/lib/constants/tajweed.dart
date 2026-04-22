@@ -1,6 +1,8 @@
 import 'package:flutter/painting.dart';
 import 'package:arabic_text_justification/arabic_text_justification.dart';
 
+import '../main.dart' show PageLine;
+
 enum TajweedRule {
   ghunnah('Ghunnah', Color(0xFFF57C00)),
   qalqalah('Qalqalah', Color(0xFFD32F2F)),
@@ -35,6 +37,11 @@ List<WordColorSpan> colorSpansFromRegex({
   }
   return out;
 }
+
+List<List<WordColorSpan>> buildTajweedSpans(List<PageLine> lines) => [
+      for (final line in lines)
+        colorSpansFromRegex(words: line.words, rules: tajweedRegexRules),
+    ];
 
 final tajweedRegexRules = <RegexColorRule>[
   (

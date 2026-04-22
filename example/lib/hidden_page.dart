@@ -4,6 +4,7 @@ import 'package:arabic_text_justification/arabic_text_justification.dart';
 import 'constants/constants.dart';
 import 'main.dart';
 import 'mixins/playback_mixin.dart';
+import 'widgets/labeled_switch_row.dart';
 import 'widgets/playback_controls.dart';
 import 'widgets/scrollable_page.dart';
 
@@ -19,8 +20,11 @@ class _HiddenPageState extends State<HiddenPage>
   bool _showAll = false;
 
   @override
+  List<PageLine> get dataLines => page3Lines;
+
+  @override
   bool includeWord(int lineIndex, int wordIndex) =>
-      !page3Lines[lineIndex].words[wordIndex].contains(ayahMarker);
+      !dataLines[lineIndex].words[wordIndex].contains(ayahMarker);
 
   @override
   Widget build(BuildContext context) {
@@ -35,28 +39,14 @@ class _HiddenPageState extends State<HiddenPage>
         onSeek: seek,
       ),
       extras: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _showAll ? Icons.visibility : Icons.visibility_off,
-                size: 20,
-                color: const Color(0xFF2E7D32),
-              ),
-              const SizedBox(width: 8),
-              const Text('Show all words'),
-              const SizedBox(width: 8),
-              Transform.scale(
-                scale: 0.75,
-                child: Switch(
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  value: _showAll,
-                  onChanged: (v) => setState(() => _showAll = v),
-                ),
-              ),
-            ],
+        LabeledSwitchRow(
+          label: 'Show all words',
+          value: _showAll,
+          onChanged: (v) => setState(() => _showAll = v),
+          leading: Icon(
+            _showAll ? Icons.visibility : Icons.visibility_off,
+            size: 20,
+            color: appGreen,
           ),
         ),
       ],
@@ -72,17 +62,9 @@ class _HiddenPageState extends State<HiddenPage>
                   words: page3Lines[i].words,
                   justify: page3Lines[i].justify,
                   fontSize: 18,
-                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  padding: linePadding,
                   marker: ayahMarker,
-                  wordProgress: WordProgress(
-                    hiddenWordIndices: _showAll ? null : states[i]?.hidden,
-                    passedWordIndices: states[i]?.sung,
-                    passedColor: Colors.black,
-                    activeWordIndex: states[i]?.active,
-                    activeProgress: states[i]?.progress ?? 0,
-                    activeColor: Colors.blue,
-                    style: WordProgressStyle.whole,
-                  ),
+                  wordProgress: revealProgress(states[i], showAll: _showAll),
                 ),
             ],
           );

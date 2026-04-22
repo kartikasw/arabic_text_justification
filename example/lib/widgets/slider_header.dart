@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../constants/constants.dart';
+
 class SliderHeader extends StatelessWidget {
   final String label;
   final String unit;
@@ -46,10 +48,10 @@ class SliderHeader extends StatelessWidget {
           const SizedBox(width: 8),
           if (selectedAyah != null)
             Text('Ayah: $selectedAyah',
-                style: const TextStyle(color: Color(0xFF2E7D32))),
+                style: const TextStyle(color: appGreen)),
           if (selectedWord != null)
             Text('Word: ${selectedWord!.$1},${selectedWord!.$2}',
-                style: const TextStyle(color: Color(0xFF2E7D32))),
+                style: const TextStyle(color: appGreen)),
         ],
       ),
     );

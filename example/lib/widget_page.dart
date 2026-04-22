@@ -1,15 +1,12 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:arabic_text_justification/arabic_text_justification.dart';
 
 import 'constants/constants.dart';
 import 'main.dart';
 import 'mixins/ayah_selection_mixin.dart';
+import 'mixins/debounced_slider_mixin.dart';
 import 'widgets/scrollable_page.dart';
 import 'widgets/slider_header.dart';
-
-const _scrollPadding = EdgeInsets.fromLTRB(8, 12, 8, 0);
 
 class WidgetPage extends StatefulWidget {
   const WidgetPage({super.key});
@@ -23,37 +20,21 @@ class _WidgetPageState extends State<WidgetPage>
   late final TabController _tabs = TabController(length: 2, vsync: this);
 
   // Sub-page 1 — line height slider.
-  double _height = 38;
-  double _renderedHeight = 38;
-  Timer? _heightDebounce;
+  late final _height = DebouncedValue<double>(38, onChange: _markDirty);
 
   // Sub-page 2 — font size slider.
-  double _fontSize = 20;
-  double _renderedFontSize = 20;
-  Timer? _fontDebounce;
+  late final _fontSize = DebouncedValue<double>(20, onChange: _markDirty);
+
+  void _markDirty() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
     _tabs.dispose();
-    _heightDebounce?.cancel();
-    _fontDebounce?.cancel();
+    _height.dispose();
+    _fontSize.dispose();
     super.dispose();
-  }
-
-  void _onHeightChanged(double v) {
-    setState(() => _height = v);
-    _heightDebounce?.cancel();
-    _heightDebounce = Timer(const Duration(milliseconds: 150), () {
-      if (mounted) setState(() => _renderedHeight = v);
-    });
-  }
-
-  void _onFontSizeChanged(double v) {
-    setState(() => _fontSize = v);
-    _fontDebounce?.cancel();
-    _fontDebounce = Timer(const Duration(milliseconds: 150), () {
-      if (mounted) setState(() => _renderedFontSize = v);
-    });
   }
 
   @override
@@ -62,8 +43,8 @@ class _WidgetPageState extends State<WidgetPage>
       children: [
         TabBar(
           controller: _tabs,
-          labelColor: const Color(0xFF2E7D32),
-          indicatorColor: const Color(0xFF2E7D32),
+          labelColor: appGreen,
+          indicatorColor: appGreen,
           tabs: const [
             Tab(text: 'Line height'),
             Tab(text: 'Font size'),
@@ -84,21 +65,21 @@ class _WidgetPageState extends State<WidgetPage>
 
   Widget _buildHeightTab() {
     return ScrollablePage(
-      padding: _scrollPadding,
+      padding: scrollablePagePadding,
       header: SliderHeader(
         label: 'Line height',
         unit: 'px',
-        value: _height,
+        value: _height.current,
         min: 20,
         max: 120,
-        onChanged: _onHeightChanged,
+        onChanged: _height.set,
         selectedAyah: selectedAyah,
         selectedWord: selectedWord,
       ),
       child: Column(
         children: [
           for (int i = 0; i < page3Lines.length; i++)
-            _buildLine(i, height: _renderedHeight),
+            _buildLine(i, height: _height.rendered),
         ],
       ),
     );
@@ -106,20 +87,20 @@ class _WidgetPageState extends State<WidgetPage>
 
   Widget _buildFontSizeTab() {
     return ScrollablePage(
-      padding: _scrollPadding,
+      padding: scrollablePagePadding,
       header: SliderHeader(
         label: 'Font size',
-        value: _fontSize,
+        value: _fontSize.current,
         min: 8,
         max: 64,
-        onChanged: _onFontSizeChanged,
+        onChanged: _fontSize.set,
         selectedAyah: selectedAyah,
         selectedWord: selectedWord,
       ),
       child: Column(
         children: [
           for (int i = 0; i < page3Lines.length; i++)
-            _buildLine(i, fontSize: _renderedFontSize),
+            _buildLine(i, fontSize: _fontSize.rendered),
         ],
       ),
     );
@@ -132,7 +113,7 @@ class _WidgetPageState extends State<WidgetPage>
       justify: page3Lines[i].justify,
       fontSize: fontSize,
       height: height,
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: linePadding,
       marker: isBasmallah ? null : ayahMarker,
       highlightedWordIndices: isBasmallah ? null : highlightsFor(i),
       onWordTap: isBasmallah ? null : (idx, w) => onWordTap(i, idx, w),

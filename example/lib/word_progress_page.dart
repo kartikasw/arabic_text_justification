@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:arabic_text_justification/arabic_text_justification.dart';
 
+import 'constants/constants.dart';
 import 'main.dart';
 import 'mixins/playback_mixin.dart';
 import 'widgets/playback_controls.dart';
@@ -17,6 +18,9 @@ class _WordProgressPageState extends State<WordProgressPage>
     with
         SingleTickerProviderStateMixin<WordProgressPage>,
         PlaybackMixin<WordProgressPage> {
+  @override
+  List<PageLine> get dataLines => page3Lines;
+
   @override
   Widget build(BuildContext context) {
     return ScrollablePage(
@@ -41,15 +45,8 @@ class _WordProgressPageState extends State<WordProgressPage>
                   words: page3Lines[i].words,
                   justify: page3Lines[i].justify,
                   fontSize: 20,
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  wordProgress: WordProgress(
-                    passedWordIndices: states[i]?.sung,
-                    passedHighlightColor: Colors.grey.withValues(alpha: 0.25),
-                    activeWordIndex: states[i]?.active,
-                    activeProgress: states[i]?.progress ?? 0,
-                    activeHighlightColor: Colors.grey.withValues(alpha: 0.55),
-                    style: WordProgressStyle.whole,
-                  ),
+                  padding: linePadding,
+                  wordProgress: wholeGreyProgress(states[i]),
                 ),
             ],
           );
