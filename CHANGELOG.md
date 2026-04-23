@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Add `JustifiedArabicBlock` for multi-line rendering with a shared font size
+- Align line and block sizing so both widgets pick the same fontSize for the same slot
+
 ## 0.3.0
 
 - Add `colorSpans` for per-character color tinting inside words
