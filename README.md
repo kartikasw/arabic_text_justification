@@ -2,7 +2,7 @@
 
 A Flutter FFI plugin for Arabic text rendering with kashida-based justification using [HarfBuzz](https://harfbuzz.github.io/) and [FreeType](https://freetype.org/).
 
-Ships two high-level line widgets plus the underlying shaping API. Supports both **bitmap** and **vector outline** rendering.
+Ships two line widgets plus a multi-line block for page-style layouts. Supports both **bitmap** and **vector outline** rendering.
 
 ## Demo
 
@@ -42,6 +42,22 @@ JustifiedArabicBitmapLine(
   fontSize: 24,
 )
 ```
+
+### Multi-line block — page-style layout
+
+`JustifiedArabicBlock` composes N pre-split lines with a single shared font size, so every row renders at the same height even when word content differs. Useful for mushaf-style pages where line breaks are pre-assigned by the caller.
+
+```dart
+JustifiedArabicBlock(
+  lines: [
+    JustifiedArabicLineSpec(words: ['ٱلْحَمْدُ', 'لِلَّهِ', 'رَبِّ', 'ٱلْعَٰلَمِينَ']),
+    JustifiedArabicLineSpec(words: ['ٱلرَّحْمَٰنِ', 'ٱلرَّحِيمِ']),
+  ],
+  lineSpacing: 4,
+)
+```
+
+Per-line overrides (`color`, `highlightedWordIndices`, `colorSpans`, `wordProgress`, `alignment`, `justify`) go in `JustifiedArabicLineSpec`. Leave `fontSize` null to auto-fit — the block picks the size that fills a height-bounded slot, or that makes the widest natural line fill the available width when height is unbounded.
 
 ### Render a justified RTL line
 
@@ -164,7 +180,7 @@ JustifiedArabicLine(
 
 ## Example
 
-- [`example/`](https://github.com/kartikasw/arabic_text_justification/tree/master/example) — five tabs cover the Widget (taps, line height, font size), Bitmap, timer-driven progress animation, the memorization / reveal mode, and a regex-based tajweed demo.
+- [`example/`](https://github.com/kartikasw/arabic_text_justification/tree/master/example) — six tabs cover the Widget (taps, line height, font size), Bitmap, timer-driven progress animation, the memorization / reveal mode, a regex-based tajweed demo, and a multi-line Block page. The menu icon opens a Mushaf page comparing block vs. line-by-line composition on the same slot.
 
 ---
 
